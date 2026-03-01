@@ -1,7 +1,7 @@
 import time
 import numpy as np
 from vieneu_utils.normalize_text import VietnameseTTSNormalizer
-from vieneu_utils.phonemize_text import phonemize_with_dict
+from vieneu_utils.phonemize_text import phonemize_with_dict, phonemize_batch
 from vieneu_utils.core_utils import split_text_into_chunks
 
 def benchmark_normalization(n_iterations=100):
@@ -19,13 +19,34 @@ def benchmark_normalization(n_iterations=100):
 def benchmark_phonemization(n_iterations=10):
     text = "Xin chào Việt Nam, đây là một ví dụ về chuyển đổi văn bản thành âm thanh."
 
+    # 1. First call (uncached)
+    phonemize_with_dict.cache_clear()
+    start = time.time()
+    _ = phonemize_with_dict(text)
+    end = time.time()
+    print(f"Initial Phonemization Time (Uncached): {(end - start)*1000:.4f} ms")
+
+    # 2. Repeated calls (cached)
     start = time.time()
     for _ in range(n_iterations):
         _ = phonemize_with_dict(text)
     end = time.time()
 
     avg_time = (end - start) / n_iterations
-    print(f"Average Phonemization Time: {avg_time*1000:.4f} ms")
+    print(f"Average Phonemization Time (Cached): {avg_time*1000:.4f} ms")
+
+def benchmark_phonemization_batch(n_iterations=5, batch_size=10):
+    # Use repetitive text to demonstrate deduplication
+    text = "Deduplication test. " * 5
+    batch = [text] * batch_size
+
+    start = time.time()
+    for _ in range(n_iterations):
+        _ = phonemize_batch(batch)
+    end = time.time()
+
+    avg_time = (end - start) / n_iterations
+    print(f"Average Batch Phonemization Time (Batch Size {batch_size}): {avg_time*1000:.4f} ms")
 
 def benchmark_text_splitting(n_iterations=100):
     text = "Câu ngắn. " * 50
@@ -42,4 +63,5 @@ if __name__ == "__main__":
     print("=== VieNeu-TTS Benchmarks ===")
     benchmark_normalization()
     benchmark_phonemization()
+    benchmark_phonemization_batch()
     benchmark_text_splitting()

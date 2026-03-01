@@ -42,8 +42,8 @@ def _linear_overlap_add(frames: List[np.ndarray], stride: int) -> np.ndarray:
     for frame in frames:
         frame_length = frame.shape[-1]
 
-        if frame_length not in _WEIGHT_CACHE:
-            # Recompute weight if not in cache
+        if frame_length not in _WEIGHT_CACHE or _WEIGHT_CACHE[frame_length].dtype != dtype:
+            # Recompute weight if not in cache or dtype mismatch
             t = np.linspace(0, 1, frame_length + 2, dtype=dtype)[1:-1]
             weight = np.abs(0.5 - (t - 0.5))
             _WEIGHT_CACHE[frame_length] = weight

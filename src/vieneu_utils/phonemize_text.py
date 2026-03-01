@@ -4,6 +4,7 @@ import platform
 import glob
 import re
 import logging
+import functools
 from phonemizer import phonemize
 from phonemizer.backend.espeak.espeak import EspeakWrapper
 from vieneu_utils.normalize_text import VietnameseTTSNormalizer
@@ -114,17 +115,26 @@ def phonemize_text(text: str) -> str:
     )
 
 
-def phonemize_with_dict(text: str, phoneme_dict: dict = phoneme_dict, skip_normalize: bool = False) -> str:
+def phonemize_with_dict(text: str, phoneme_dict: dict = None, skip_normalize: bool = False) -> str:
     """
     Phonemize single text with dictionary lookup and EN tag support.
-    Refactored to use phonemize_batch for consistency.
+    Uses LRU cache when the default dictionary is used.
     """
+    if phoneme_dict is None or phoneme_dict is globals().get('phoneme_dict'):
+        return _phonemize_with_dict_cached(text, skip_normalize)
+
     return phonemize_batch([text], phoneme_dict=phoneme_dict, skip_normalize=skip_normalize)[0]
+
+
+@functools.lru_cache(maxsize=1024)
+def _phonemize_with_dict_cached(text: str, skip_normalize: bool = False) -> str:
+    """Internal cached version of phonemization using the global dictionary."""
+    return phonemize_batch([text], skip_normalize=skip_normalize)[0]
 
 
 def phonemize_batch(texts: list[str], phoneme_dict: dict = phoneme_dict, skip_normalize: bool = False) -> list[str]:
     """
-    Phonemize multiple texts with optimal batching.
+    Phonemize multiple texts with optimal batching and deduplication.
     
     Args:
         texts: List of text strings to phonemize
@@ -134,29 +144,37 @@ def phonemize_batch(texts: list[str], phoneme_dict: dict = phoneme_dict, skip_no
     Returns:
         List of phonemized texts
     """
+    if not texts:
+        return []
+
     if skip_normalize:
         normalized_texts = texts
     else:
         normalized_texts = [normalizer.normalize(text) for text in texts]
     
-    all_en_texts = []
-    all_en_maps = []
+    # Using dict for deduplication while preserving order (in Python 3.7+)
+    unique_en_segments = {}
+    unique_vi_cores = {}
     
-    all_vi_texts = []
-    all_vi_maps = []
-    
+    # Structure to hold intermediate results
+    # Each entry: [ [parts], [parts] ... ] where parts can be a string (EN) or list (VI words)
     results = []
     
     for text_idx, text in enumerate(normalized_texts):
+        # Split by <en> tags
         parts = re.split(r'(<en>.*?</en>)', text, flags=re.IGNORECASE)
         processed_parts = []
         
         for part_idx, part in enumerate(parts):
+            if not part:
+                processed_parts.append("")
+                continue
+
             if re.match(r'<en>.*</en>', part, re.IGNORECASE):
                 en_content = re.sub(r'</?en>', '', part, flags=re.IGNORECASE).strip()
-                all_en_texts.append(en_content)
-                all_en_maps.append((text_idx, part_idx))
-                processed_parts.append(None)
+                if en_content not in unique_en_segments:
+                    unique_en_segments[en_content] = None
+                processed_parts.append({'type': 'en', 'content': en_content})
             else:
                 words = part.split()
                 processed_words = []
@@ -166,74 +184,90 @@ def phonemize_batch(texts: list[str], phoneme_dict: dict = phoneme_dict, skip_no
                     pre, core, suf = match.groups() if match else ("", word, "")
                     
                     if not core:
-                        processed_words.append(word)
+                        processed_words.append({'type': 'fixed', 'content': word})
                     elif core in phoneme_dict:
-                        processed_words.append(f"{pre}{phoneme_dict[core]}{suf}")
+                        processed_words.append({'type': 'fixed', 'content': f"{pre}{phoneme_dict[core]}{suf}"})
                     else:
-                        all_vi_texts.append(word)
-                        all_vi_maps.append((text_idx, part_idx, len(processed_words)))
-                        processed_words.append(None)
+                        if core not in unique_vi_cores:
+                            unique_vi_cores[core] = None
+                        processed_words.append({'type': 'vi_core', 'pre': pre, 'core': core, 'suf': suf})
                 
-                processed_parts.append(processed_words)
+                processed_parts.append({'type': 'vi_words', 'content': processed_words})
         
         results.append(processed_parts)
     
-    if all_en_texts:
+    # 1. Phonemize unique EN segments in one batch
+    if unique_en_segments:
+        en_list = list(unique_en_segments.keys())
         try:
             en_phonemes = phonemize(
-                all_en_texts,
+                en_list,
                 language='en-us',
                 backend='espeak',
                 preserve_punctuation=True,
                 with_stress=True,
                 language_switch="remove-flags"
             )
-            
             if isinstance(en_phonemes, str):
                 en_phonemes = [en_phonemes]
             
-            for (text_idx, part_idx), phoneme in zip(all_en_maps, en_phonemes):
-                results[text_idx][part_idx] = phoneme.strip()
+            for original, phoneme in zip(en_list, en_phonemes):
+                unique_en_segments[original] = phoneme.strip()
         except Exception as e:
             logger.warning(f"Warning: Batch EN phonemization failed: {e}")
-    
-    if all_vi_texts:
+            for original in en_list:
+                unique_en_segments[original] = original
+
+    # 2. Phonemize unique VI cores in one batch
+    if unique_vi_cores:
+        vi_list = list(unique_vi_cores.keys())
         try:
             vi_phonemes = phonemize(
-                all_vi_texts,
+                vi_list,
                 language='vi',
                 backend='espeak',
                 preserve_punctuation=True,
                 with_stress=True,
                 language_switch='remove-flags'
             )
-            
             if isinstance(vi_phonemes, str):
                 vi_phonemes = [vi_phonemes]
             
-            for idx, (text_idx, part_idx, word_idx) in enumerate(all_vi_maps):
-                phoneme = vi_phonemes[idx].strip()
+            for original, phoneme in zip(vi_list, vi_phonemes):
+                ph = phoneme.strip()
+                # Special rule for 'r' starting words
+                if original.lower().startswith('r') and ph:
+                    ph = 'ɹ' + ph[1:]
                 
-                original_word = all_vi_texts[idx]
-                if original_word.lower().startswith('r'):
-                    phoneme = 'ɹ' + phoneme[1:] if len(phoneme) > 0 else phoneme
-                
-                phoneme_dict[original_word] = phoneme
-                results[text_idx][part_idx][word_idx] = phoneme
+                unique_vi_cores[original] = ph
+                phoneme_dict[original] = ph # Cache for future
         except Exception as e:
             logger.warning(f"Warning: Batch VI phonemization failed: {e}")
-    
+            for original in vi_list:
+                unique_vi_cores[original] = original
+
+    # 3. Assemble final results
     final_results = []
     for processed_parts in results:
-        final_parts = []
+        text_parts = []
         for part in processed_parts:
-            if isinstance(part, list):
-                final_parts.append(' '.join(str(w) for w in part if w is not None))
-            elif part is not None:
-                final_parts.append(part)
+            if not part: continue
+
+            if part['type'] == 'en':
+                text_parts.append(unique_en_segments.get(part['content'], part['content']))
+            elif part['type'] == 'vi_words':
+                word_list = []
+                for w in part['content']:
+                    if w['type'] == 'fixed':
+                        word_list.append(w['content'])
+                    else:
+                        ph = unique_vi_cores.get(w['core'], w['core'])
+                        word_list.append(f"{w['pre']}{ph}{w['suf']}")
+                text_parts.append(" ".join(word_list))
         
-        result = ' '.join(final_parts)
-        result = re.sub(r'\s+([.,!?;:])', r'\1', result)
-        final_results.append(result)
+        full_text = " ".join(text_parts)
+        # Cleanup spaces before punctuation
+        full_text = re.sub(r'\s+([.,!?;:])', r'\1', full_text)
+        final_results.append(full_text)
     
     return final_results

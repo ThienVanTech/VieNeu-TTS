@@ -1,3 +1,5 @@
+import os
+import platform
 from pathlib import Path
 from typing import Optional, Union, List, Generator, Any, Dict
 import numpy as np
@@ -45,6 +47,20 @@ class VieNeuTTS(BaseVieneuTTS):
             self._load_backbone(backbone_repo, backbone_device, hf_token)
         self._load_codec(codec_repo, codec_device)
         self._load_voices(backbone_repo, hf_token)
+        self._warmup_model()
+
+    def _warmup_model(self):
+        """Warm up the model to initialize CUDA/XPU kernels and KV cache."""
+        try:
+            logger.info("🔥 Warming up standard model...")
+            dummy_text = "Xin chào"
+            # Using very short dummy ref to speed up
+            dummy_ref_codes = torch.zeros(10, dtype=torch.long)
+            dummy_ref_text = "Chào"
+            _ = self.infer(dummy_text, ref_codes=dummy_ref_codes, ref_text=dummy_ref_text, max_chars=16)
+            logger.info("   ✅ Warmup complete")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Warmup failed: {e}")
 
     def close(self):
         """Explicitly release model resources."""
@@ -97,32 +113,41 @@ class VieNeuTTS(BaseVieneuTTS):
                 torch.device(backbone_device)
             )
 
+            # Optional torch.compile for non-Windows/non-Mac platforms if desired
+            if os.getenv("VIENEU_COMPILE") == "1" and platform.system() == "Linux":
+                try:
+                    logger.info("🚀 Compiling backbone model with torch.compile...")
+                    self.backbone = torch.compile(self.backbone, mode="reduce-overhead")
+                except Exception as e:
+                    logger.warning(f"Failed to compile backbone: {e}")
+
     def _load_codec(self, codec_repo: str, codec_device: str):
         if codec_device == "mps" and not torch.backends.mps.is_available():
             logger.warning("Warning: MPS not available for codec, falling back to CPU")
             codec_device = "cpu"
 
         logger.info(f"Loading codec from: {codec_repo} on {codec_device} ...")
-        match codec_repo:
-            case "neuphonic/neucodec":
-                self.codec = NeuCodec.from_pretrained(codec_repo)
-                self.codec.eval().to(codec_device)
-            case "neuphonic/distill-neucodec":
-                self.codec = DistillNeuCodec.from_pretrained(codec_repo)
-                self.codec.eval().to(codec_device)
-            case "neuphonic/neucodec-onnx-decoder-int8":
-                if codec_device != "cpu":
-                    raise ValueError("Onnx decoder only currently runs on CPU.")
-                try:
-                    from neucodec import NeuCodecOnnxDecoder
-                except ImportError as e:
-                    raise ImportError(
-                        "Failed to import the onnx decoder. Ensure onnxruntime and neucodec >= 0.0.4 are installed."
-                    ) from e
-                self.codec = NeuCodecOnnxDecoder.from_pretrained(codec_repo)
-                self._is_onnx_codec = True
-            case _:
-                raise ValueError(f"Unsupported codec repository: {codec_repo}")
+
+        if codec_repo == "neuphonic/neucodec":
+            self.codec = NeuCodec.from_pretrained(codec_repo)
+        elif codec_repo == "neuphonic/distill-neucodec":
+            self.codec = DistillNeuCodec.from_pretrained(codec_repo)
+        elif codec_repo == "neuphonic/neucodec-onnx-decoder-int8":
+            if codec_device != "cpu":
+                raise ValueError("Onnx decoder only currently runs on CPU.")
+            try:
+                from neucodec import NeuCodecOnnxDecoder
+            except ImportError as e:
+                raise ImportError(
+                    "Failed to import the onnx decoder. Ensure onnxruntime and neucodec >= 0.0.4 are installed."
+                ) from e
+            self.codec = NeuCodecOnnxDecoder.from_pretrained(codec_repo)
+            self._is_onnx_codec = True
+        else:
+            raise ValueError(f"Unsupported codec repository: {codec_repo}")
+
+        if not self._is_onnx_codec:
+            self.codec.eval().to(codec_device)
 
     def load_lora_adapter(self, lora_repo_id: str, hf_token: Optional[str] = None):
         if self._is_quantized_model:
@@ -182,7 +207,7 @@ class VieNeuTTS(BaseVieneuTTS):
             return np.array([], dtype=np.float32)
 
         # Pre-phonemize all inputs for performance
-        ref_phonemes = phonemize_with_dict(ref_text)
+        ref_phonemes = self.get_ref_phonemes(ref_text)
         chunk_phonemes = phonemize_batch(chunks, skip_normalize=True)
 
         all_wavs = []
@@ -210,7 +235,7 @@ class VieNeuTTS(BaseVieneuTTS):
             return
 
         # Pre-phonemize all inputs for performance
-        ref_phonemes = phonemize_with_dict(ref_text)
+        ref_phonemes = self.get_ref_phonemes(ref_text)
         chunk_phonemes = phonemize_batch(chunks, skip_normalize=True)
 
         for phonemes in chunk_phonemes:

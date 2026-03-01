@@ -5,7 +5,7 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import logging
 from neucodec import NeuCodec, DistillNeuCodec
-from .core import VieNeuTTS
+from .standard import VieNeuTTS
 
 logger = logging.getLogger("Vieneu.XPU")
 

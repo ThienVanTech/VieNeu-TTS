@@ -27,6 +27,7 @@ class BaseVieneuTTS(ABC):
         self._preset_voices: Dict[str, Any] = {}
         self._default_voice: Optional[str] = None
         self.normalizer = VietnameseTTSNormalizer()
+        self._ref_phoneme_cache: Dict[str, str] = {}
 
         # Watermarker placeholder
         self.watermarker = None
@@ -160,6 +161,15 @@ class BaseVieneuTTS(ABC):
             codes = torch.tensor(codes, dtype=torch.long)
 
         return {"codes": codes, "text": voice_data["text"]}
+
+    def get_ref_phonemes(self, ref_text: str) -> str:
+        """
+        Get phonemized version of reference text, using cache if available.
+        """
+        if ref_text not in self._ref_phoneme_cache:
+            from vieneu_utils.phonemize_text import phonemize_with_dict
+            self._ref_phoneme_cache[ref_text] = phonemize_with_dict(ref_text)
+        return self._ref_phoneme_cache[ref_text]
 
     def save(self, audio: np.ndarray, output_path: Union[str, Path]):
         """Save audio waveform to a file."""
