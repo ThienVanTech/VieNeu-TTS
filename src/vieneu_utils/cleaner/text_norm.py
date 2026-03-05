@@ -88,13 +88,14 @@ RE_TEMP_F = re.compile(r'(\d+(?:[.,]\d+)?)\s*°\s*f\b', re.IGNORECASE)
 RE_DEGREE = re.compile(r'°')
 RE_VERSION = re.compile(r'\b(\d+(?:\.\d+)+)\b')
 RE_CLEAN_OTHERS = re.compile(r'[^\w\sàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữỳýỷỹỵđ.,!?;:@%_]')
+RE_CLEAN_QUOTES = re.compile(r'["\'“”‘’]')
 
 # Reusable patterns for measurement/currency
 _MAGNITUDE_P = r"\s*(tỷ|triệu|nghìn|ngàn)?\s*"
 _NUMERIC_P = r"((?:\d+[.,])*\d+)"
 
 # Pre-compiled regex for compound units
-RE_COMPOUND_UNIT = re.compile(rf"{_NUMERIC_P}?\s*\b([a-zμµ²³°]+)/([a-zμµ²³°0-9]+)\b", re.IGNORECASE)
+RE_COMPOUND_UNIT = re.compile(rf"\b{_NUMERIC_P}?\s*([a-zμµ²³°]+)/([a-zμµ²³°0-9]+)\b", re.IGNORECASE)
 
 # Pre-compiled currency patterns
 RE_CURRENCY_PREFIX_USD = re.compile(rf"\$\s*{_NUMERIC_P}{_MAGNITUDE_P}", re.IGNORECASE)
@@ -125,6 +126,17 @@ for unit, full in _currency_key.items():
 
 # Pre-compile acronyms exceptions
 _ACRONYMS_EXCEPTIONS_RE = [(re.compile(rf"\b{re.escape(k)}\b"), v) for k, v in _acronyms_exceptions_vi.items()]
+
+_ROMAN_NUMERALS = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+_ABBRS = {"v.v": " vân vân", "v/v": " về việc", "ko": " không", "đ/c": "địa chỉ"}
+
+_SYMBOLS_MAP = {
+    '&': ' và ', '+': ' cộng ', '=': ' bằng ', '#': ' thăng ',
+    '>': ' lớn hơn ', '<': ' nhỏ hơn ',
+    '≥': ' lớn hơn hoặc bằng ', '≤': ' nhỏ hơn hoặc bằng ',
+    '±': ' cộng trừ ', '≈': ' xấp xỉ '
+}
 
 def _expand_number_with_sep(num_str):
     if not num_str: return ""
@@ -193,15 +205,14 @@ def expand_compound_units(text):
     return text
 
 def expand_roman(match):
-    roman_numerals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
     num = match.group(0).upper()
     if not num: return ""
     result = 0
     for i, c in enumerate(num):
-        if (i + 1) == len(num) or roman_numerals[c] >= roman_numerals[num[i + 1]]:
-            result += roman_numerals[c]
+        if (i + 1) == len(num) or _ROMAN_NUMERALS[c] >= _ROMAN_NUMERALS[num[i + 1]]:
+            result += _ROMAN_NUMERALS[c]
         else:
-            result -= roman_numerals[c]
+            result -= _ROMAN_NUMERALS[c]
     return f" {n2w(str(result))} "
 
 def expand_letter(match):
@@ -211,8 +222,7 @@ def expand_letter(match):
     return match.group(0)
 
 def expand_abbreviations(text):
-    abbrs = {"v.v": " vân vân", "v/v": " về việc", "ko": " không", "đ/c": "địa chỉ"}
-    for k, v in abbrs.items():
+    for k, v in _ABBRS.items():
         text = text.replace(k, v)
     return text
 
@@ -360,13 +370,7 @@ def expand_alphanumeric(text):
     return RE_ALPHANUMERIC.sub(_repl, text)
 
 def expand_symbols(text):
-    symbols_map = {
-        '&': ' và ', '+': ' cộng ', '=': ' bằng ', '#': ' thăng ',
-        '>': ' lớn hơn ', '<': ' nhỏ hơn ',
-        '≥': ' lớn hơn hoặc bằng ', '≤': ' nhỏ hơn hoặc bằng ',
-        '±': ' cộng trừ ', '≈': ' xấp xỉ '
-    }
-    for s, v in symbols_map.items():
+    for s, v in _SYMBOLS_MAP.items():
         text = text.replace(s, v)
     return text
 
@@ -379,6 +383,10 @@ def expand_temperatures(text):
     return text
 
 def normalize_others(text):
+    """
+    Apply various normalization rules that don't fit into specific categories.
+    This function is called by clean_vietnamese_text.
+    """
     # 1. Expand acronym exceptions and basic patterns
     for pattern, v in _ACRONYMS_EXCEPTIONS_RE:
         text = pattern.sub(v, text)
@@ -387,34 +395,31 @@ def normalize_others(text):
     text = normalize_emails(text)
     text = normalize_slashes(text)
 
-    # 2. Expand Roman numerals and standalone letters
+    # 2. Expand Roman numerals and special letter patterns
     text = RE_ROMAN_NUMBER.sub(expand_roman, text)
     text = RE_LETTER.sub(expand_letter, text)
     text = expand_alphanumeric(text)
     
-    # 3. Clean quotes and symbols
-    text = re.sub(r'["\'“”‘’]', '', text)
+    # 3. Clean quotes and expand general symbols
+    text = RE_CLEAN_QUOTES.sub('', text)
     text = expand_symbols(text)
 
-    # 4. Expand units and measurements
-    text = expand_compound_units(text)
-    text = expand_measurement(text)
-    text = expand_currency(text)
-    
-    # 5. Handle brackets and temperatures
+    # 4. Handle brackets and temperatures
+    # Note: Measurement/Currency expansion is handled by clean_vietnamese_text caller
     text = RE_BRACKETS.sub(r', \1, ', text)
     text = RE_STRIP_BRACKETS.sub(' ', text)
     text = expand_temperatures(text)
 
-    # 6. Normalize acronyms
+    # 5. Normalize acronyms (spell out or tag with <en>)
     text = normalize_acronyms(text)
 
-    # 7. Expand version numbers (1.2.3 -> 1 chấm 2 chấm 3)
+    # 6. Expand version numbers (e.g., 1.2.3 -> 1 chấm 2 chấm 3)
     text = RE_VERSION.sub(lambda m: ' chấm '.join(m.group(1).split('.')), text)
 
-    # 8. Final cleanup
+    # 7. Final cleanup of any remaining unsupported characters
     text = RE_CLEAN_OTHERS.sub(' ', text)
     
+    # Restore internal <en> tags
     text = text.replace('__START_EN__', '<en>').replace('__END_EN__', '</en>')
     
     return text

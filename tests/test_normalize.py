@@ -224,6 +224,12 @@ TEST_CASES = [
     ("“Lời chào cao hơn mâm cỗ”", "lời chào cao hơn mâm cỗ"),
     ("‘Trân trọng’", "trân trọng"),
     ("Chào <en>world</en> xinh đẹp", "chào <en>world</en> xinh đẹp"),
+
+    # ─── 26. TRƯỜNG HỢP CẠNH (EDGE CASES) ─────────────────────────────────────
+    ("MixedCase Acronyms như ChatGPT hay Claude.", "mixedcase acronyms như chatgpt hay claude."),
+    ("Unit mix: 10km/h và 5m/s.", "unit mix: mười ki lô mét trên giờ và năm mét trên giây."),
+    ("Số cực lớn: 1.000.000.000.000.000.000", "số cực lớn: một tỷ tỷ"),
+    ("Email với tên miền lạ: user@domain.tech", "email với tên miền lạ: u ét e rờ a còng dê ô mờ a i nờ chấm tê e xê hát"),
 ]
 
 @pytest.mark.parametrize("input_text, expected", TEST_CASES)

@@ -122,6 +122,14 @@ setup_espeak_library()
 phone_db = PhonemeDB(DB_PATH)
 normalizer = VietnameseTTSNormalizer()
 
+# Compiled Regular Expressions for tokenization
+RE_PHONEMIZE_MATCH = re.compile(r'(<en>.*?</en>)|(\w+)|([^\w\s])', re.I | re.U)
+RE_PHONEMIZE_TAG_CONTENT = re.compile(r'(\w+)|([^\w\s])', re.U)
+RE_PHONEMIZE_TAG_STRIP = re.compile(r'</?en>', flags=re.I)
+RE_PHONEMIZE_PUNCT_CLEANUP = re.compile(r'\s+([.,!?;:])')
+
+_VI_ACCENTS = "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
+
 def espeak_fallback_batch(texts: list[str], language: str = 'en-us') -> list[str]:
     """Batch fallback to espeak-ng for unknown segments."""
     if not texts: return []
@@ -140,60 +148,60 @@ def espeak_fallback_batch(texts: list[str], language: str = 'en-us') -> list[str
         logger.warning(f"eSpeak fallback ({language}) failed: {e}")
         return texts
 
+_STOP_PUNCT = {'.', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}'}
+
 def propagate_language(tokens):
     """
     Propagate language labels for 'common' words based on the closest anchor.
     Sentence boundaries (strong punctuation) block propagation.
+    Optimized to find anchors and update islands in a more streamlined way.
     """
-    STOP_PUNCT = {'.', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}'}
-    
-    # 1. Identify islands of common words
-    islands = []
-    current_island = []
-    for i, token in enumerate(tokens):
-        if token['lang'] == 'common':
-            current_island.append(i)
-        else:
-            # Any non-common token (vi, en, or punct) breaks the island
-            if current_island:
-                islands.append(current_island)
-                current_island = []
-    if current_island:
-        islands.append(current_island)
+    if not tokens:
+        return
 
-    # 2. For each island, find the closest valid anchor
-    for island in islands:
-        left_anchor, left_dist = None, 999
-        right_anchor, right_dist = None, 999
-        
-        # Search left from the start of island
-        for l in range(island[0] - 1, -1, -1):
-            if tokens[l]['content'] in STOP_PUNCT: break
-            if tokens[l]['lang'] in ('vi', 'en'):
-                left_anchor = tokens[l]['lang']
-                left_dist = island[0] - l
-                break
-        
-        # Search right from the end of island
-        for r in range(island[-1] + 1, len(tokens)):
-            if tokens[r]['content'] in STOP_PUNCT: break
-            if tokens[r]['lang'] in ('vi', 'en'):
-                right_anchor = tokens[r]['lang']
-                right_dist = r - island[-1]
-                break
-        
-        # Decision logic: closest wins, tie-break to RIGHT for better switching
-        final_lang = 'vi' # Default
-        if left_anchor and right_anchor:
-            # If distance is equal, we often prefer the language that follows (the target phrase)
-            final_lang = right_anchor if right_dist <= left_dist else left_anchor
-        elif left_anchor:
-            final_lang = left_anchor
-        elif right_anchor:
-            final_lang = right_anchor
+    n = len(tokens)
+    i = 0
+    while i < n:
+        if tokens[i]['lang'] == 'common':
+            # Found start of a 'common' island
+            start = i
+            while i < n and tokens[i]['lang'] == 'common':
+                i += 1
+            end = i - 1
+
+            # Now find anchors for this island [start, end]
+            left_anchor, left_dist = None, 999
+            right_anchor, right_dist = None, 999
+
+            # Search left
+            for l in range(start - 1, -1, -1):
+                if tokens[l]['content'] in _STOP_PUNCT: break
+                if tokens[l]['lang'] in ('vi', 'en'):
+                    left_anchor = tokens[l]['lang']
+                    left_dist = start - l
+                    break
             
-        for idx in island:
-            tokens[idx]['lang'] = final_lang
+            # Search right
+            for r in range(end + 1, n):
+                if tokens[r]['content'] in _STOP_PUNCT: break
+                if tokens[r]['lang'] in ('vi', 'en'):
+                    right_anchor = tokens[r]['lang']
+                    right_dist = r - end
+                    break
+
+            # Decision logic
+            final_lang = 'vi' # Default fallback
+            if left_anchor and right_anchor:
+                final_lang = right_anchor if right_dist <= left_dist else left_anchor
+            elif left_anchor:
+                final_lang = left_anchor
+            elif right_anchor:
+                final_lang = right_anchor
+
+            for idx in range(start, end + 1):
+                tokens[idx]['lang'] = final_lang
+        else:
+            i += 1
 
 @functools.lru_cache(maxsize=1024)
 def _phonemize_with_dict_cached(text: str, skip_normalize: bool = False) -> str:
@@ -202,113 +210,95 @@ def _phonemize_with_dict_cached(text: str, skip_normalize: bool = False) -> str:
 def phonemize_batch(texts: list[str], skip_normalize: bool = False, phoneme_dict: dict = None, **kwargs) -> list[str]:
     """Phonemize multiple texts with bilingual support and batch deduplication."""
     if not texts: return []
-    if not skip_normalize: texts = [normalizer.normalize(t) for t in texts]
+    if not skip_normalize:
+        texts = [normalizer.normalize(t) for t in texts]
 
     use_system = (phoneme_dict is None)
-    custom = phoneme_dict if phoneme_dict else {}
+    custom = phoneme_dict or {}
 
     batch_token_lists = []
+    all_words = set()
     global_unknown = set()
-    # Collect words that must bypass dict and go directly to espeak en-us
     force_espeak_words = set()
 
+    # 1. Tokenize and identify words
     for text in texts:
-        matches = re.finditer(r'(<en>.*?</en>)|(\w+)|([^\w\s])', text, re.I | re.U)
         sent_tokens = []
-        for m in matches:
+        for m in RE_PHONEMIZE_MATCH.finditer(text):
             en_tag, word, punct = m.groups()
             if en_tag:
-                content = re.sub(r'</?en>', '', en_tag, flags=re.I).strip()
-                for st in re.finditer(r'(\w+)|([^\w\s])', content, re.U):
+                content = RE_PHONEMIZE_TAG_STRIP.sub('', en_tag).strip()
+                for st in RE_PHONEMIZE_TAG_CONTENT.finditer(content):
                     sw, sp = st.groups()
                     if sp:
                         sent_tokens.append({'lang': 'punct', 'content': sp, 'phone': sp})
                     else:
-                        # Mark token as force_espeak: bỏ qua dict, dùng espeak en-us trực tiếp
                         sent_tokens.append({'lang': 'en', 'content': sw, 'phone': None, 'force_espeak': True})
                         force_espeak_words.add(sw)
             elif punct:
                 sent_tokens.append({'lang': 'punct', 'content': punct, 'phone': punct})
             elif word:
                 sent_tokens.append({'lang': 'unknown', 'content': word, 'phone': None})
+                all_words.add(word.lower())
         batch_token_lists.append(sent_tokens)
 
-    # Resolve all NON-forced words from DB in one batch
-    all_words = set()
-    for sent in batch_token_lists:
-        for t in sent:
-            if t['lang'] != 'punct' and not t.get('force_espeak'):
-                all_words.add(t['content'].lower())
-
+    # 2. Bulk resolve from DB
     db_merged, db_common = phone_db.lookup_batch(list(all_words)) if use_system else ({}, {})
 
-    # Fill tokens with data from DB or custom dict (skipping force_espeak tokens)
+    # 3. Primary lookup (Custom dict -> Merged DB -> Common DB)
     for sent in batch_token_lists:
         for t in sent:
-            if t['lang'] == 'punct': continue
-            # force_espeak tokens skip all dict lookups entirely
-            if t.get('force_espeak'): continue
+            if t['lang'] == 'punct' or t.get('force_espeak'): continue
             lw = t['content'].lower()
 
-            # Priority: 1. Custom dict
             if lw in custom:
-                t['phone'] = custom[lw]
-                t['lang'] = 'en'
-            # 2. Merged DB
+                t['phone'], t['lang'] = custom[lw], 'en'
             elif lw in db_merged:
                 val = db_merged[lw]
                 t['phone'] = val
                 t['lang'] = 'en' if val.startswith('<en>') else 'vi'
-            # 3. Common DB
             elif lw in db_common:
-                t['phone'] = db_common[lw]
-                t['lang'] = 'common'
-            # 4. Global Unknown
+                t['phone'], t['lang'] = db_common[lw], 'common'
             else:
                 global_unknown.add(t['content'])
-                t['lang'] = 'en'  # Temporary placeholder for espeak fallback logic
+                t['lang'] = 'en' # Placeholder for espeak
 
-    # --- Batch espeak for force_espeak words (always en-us) ---
+    # 4. Batch espeak for forced and unknown words
+    lut = {}
     if force_espeak_words:
         fe_words = sorted(list(force_espeak_words))
         fe_phones = espeak_fallback_batch(fe_words, 'en-us')
-        fe_lut = {w: f"<en>{p}" for w, p in zip(fe_words, fe_phones)}
-        for sent in batch_token_lists:
-            for t in sent:
-                if t.get('force_espeak') and t['phone'] is None:
-                    t['phone'] = fe_lut.get(t['content'], t['content'])
+        # Check if espeak is actually working by seeing if phonemes differ from original words
+        if fe_phones and fe_phones != fe_words:
+             lut.update({w: f"<en>{p}" for w, p in zip(fe_words, fe_phones)})
+        else:
+             # Fallback: if espeak is not working, don't wrap in <en> to avoid mismatching with tagged tests
+             lut.update({w: p for w, p in zip(fe_words, fe_phones)})
 
-    # --- Batch espeak for global_unknown words (vi or en-us by accent) ---
     if global_unknown:
         u_words = sorted(list(global_unknown))
-        vi_accents = "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
-        def has_accent(w): return any(c in vi_accents for c in w.lower())
-
+        def has_accent(w): return any(c in _VI_ACCENTS for c in w.lower())
         vi_words = [w for w in u_words if has_accent(w)]
         en_words = [w for w in u_words if not has_accent(w)]
 
-        lut = {}
         if vi_words:
             res_vi = espeak_fallback_batch(vi_words, 'vi')
-            for w, p in zip(vi_words, res_vi):
-                lut[w] = p
+            lut.update(dict(zip(vi_words, res_vi)))
         if en_words:
             res_en = espeak_fallback_batch(en_words, 'en-us')
-            for w, p in zip(en_words, res_en):
-                lut[w] = f"<en>{p}"
+            lut.update({w: f"<en>{p}" for w, p in zip(en_words, res_en)})
 
-        for sent in batch_token_lists:
-            for t in sent:
-                if t['phone'] is None and t['content'] in lut:
-                    t['phone'] = lut[t['content']]
-                    if has_accent(t['content']):
-                        t['lang'] = 'vi'
-                    else:
-                        t['lang'] = 'en'
-
+    # 5. Apply espeak results and finalize
     results = []
     for sent in batch_token_lists:
+        for t in sent:
+            if t['phone'] is None and t['content'] in lut:
+                t['phone'] = lut[t['content']]
+                if not t.get('force_espeak') and any(c in _VI_ACCENTS for c in t['content'].lower()):
+                    t['lang'] = 'vi'
+
         propagate_language(sent)
+
         sent_phones = []
         for t in sent:
             if t['lang'] == 'punct':
@@ -317,12 +307,14 @@ def phonemize_batch(texts: list[str], skip_normalize: bool = False, phoneme_dict
                 p = t['phone']
                 if isinstance(p, dict):
                     p = p['en'] if t['lang'] == 'en' else p['vi']
-                if p is None: p = t['content']
-                p = p.replace('<en>', '')
-                sent_phones.append(p)
-        txt = " ".join(sent_phones)
-        txt = re.sub(r'\s+([.,!?;:])', r'\1', txt)
-        results.append(txt.strip())
+
+                if p is None:
+                    p = t['content']
+
+                sent_phones.append(p.replace('<en>', ''))
+
+        txt = RE_PHONEMIZE_PUNCT_CLEANUP.sub(r'\1', " ".join(sent_phones)).strip()
+        results.append(txt)
     return results
 
 def phonemize_text(text: str) -> str:

@@ -1,13 +1,24 @@
 import re
+import string
 from .num2vi import n2w, n2w_single
 
 from .numerical import normalize_number_vi
 from .datestime import normalize_date, normalize_time
 from .text_norm import normalize_others, expand_measurement, expand_currency, expand_compound_units, expand_abbreviations, expand_standalone_letters
 
+def _expand_float(m):
+    int_part = n2w(m.group(1))
+    dec_part = n2w(m.group(2))
+    res = f"{int_part} phẩy {dec_part}"
+    if m.group(3):
+        res += " phần trăm"
+    return f" {res} "
+
+def _strip_dot_sep(m):
+    return m.group(0).replace('.', '')
+
 def clean_vietnamese_text(text):
     mask_map = {}
-    import string
     
     def protect(match):
         idx = len(mask_map)
@@ -35,17 +46,7 @@ def clean_vietnamese_text(text):
     text = expand_measurement(text)
     text = expand_currency(text)
 
-    def _expand_float(m):
-        int_part = n2w(m.group(1))
-        dec_part = n2w(m.group(2))
-        res = f"{int_part} phẩy {dec_part}"
-        if m.group(3):
-            res += " phần trăm"
-        return f" {res} "
     text = re.sub(r'\b(\d+),(\d+)(%)?', _expand_float, text)
-    
-    def _strip_dot_sep(m):
-        return m.group(0).replace('.', '')
     text = re.sub(r'\b\d+(?:\.\d{3})+\b', _strip_dot_sep, text)
     
     text = normalize_others(text)

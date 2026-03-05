@@ -45,19 +45,6 @@ class RemoteVieNeuTTS(VieNeuTTS):
     def _load_backbone(self, backbone_repo, backbone_device, hf_token=None):
         pass
 
-    def _format_prompt(self, ref_codes: Union[List[int], torch.Tensor, np.ndarray], ref_text: str, input_text: str, ref_phonemes: Optional[str] = None, input_phonemes: Optional[str] = None) -> str:
-        if isinstance(ref_codes, (torch.Tensor, np.ndarray)):
-            ref_codes_list = ref_codes.flatten().tolist()
-        else:
-            ref_codes_list = ref_codes
-
-        ref_text_phones = ref_phonemes if ref_phonemes else phonemize_with_dict(ref_text)
-        input_text_phones = input_phonemes if input_phonemes else phonemize_with_dict(input_text, skip_normalize=True)
-        codes_str = "".join([f"<|speech_{idx}|>" for idx in ref_codes_list])
-        return (
-            f"user: Convert the text to speech:<|TEXT_PROMPT_START|>{ref_text_phones} {input_text_phones}"
-            f"<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>{codes_str}"
-        )
 
     def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> np.ndarray:
 
@@ -209,27 +196,6 @@ class RemoteVieNeuTTS(VieNeuTTS):
             if should_close_session:
                 await session.close()
 
-    async def _infer_chunk_async(self, session, chunk, ref_codes, ref_text, temperature, top_k):
-        prompt = self._format_prompt(ref_codes, ref_text, chunk)
-        payload = {
-            "model": self.model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 2048,
-            "temperature": temperature,
-            "top_k": top_k,
-            "stop": ["<|SPEECH_GENERATION_END|>"],
-            "stream": False
-        }
-        try:
-            async with session.post(f"{self.api_base}/chat/completions", json=payload, timeout=60) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                output_str = data["choices"][0]["message"]["content"]
-                return self._decode(output_str)
-        except Exception as e:
-            logger.error(f"Error in async chunk: {e}")
-            return np.array([], dtype=np.float32)
-
     def infer_batch(self, texts: List[str], ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False, apply_watermark: bool = True) -> List[np.ndarray]:
         """Synchronous wrapper for async batch inference."""
         return asyncio.run(self.infer_batch_async(
@@ -238,7 +204,18 @@ class RemoteVieNeuTTS(VieNeuTTS):
             apply_watermark=apply_watermark
         ))
 
-    async def _infer_chunk_async(self, session, chunk, ref_codes, ref_text, temperature, top_k, ref_phonemes=None, chunk_phonemes=None):
+    async def _infer_chunk_async(
+        self,
+        session,
+        chunk: str,
+        ref_codes: Union[List[int], torch.Tensor, np.ndarray],
+        ref_text: str,
+        temperature: float,
+        top_k: int,
+        ref_phonemes: Optional[str] = None,
+        chunk_phonemes: Optional[str] = None
+    ) -> np.ndarray:
+        """Internal helper for asynchronous chunk inference."""
         prompt = self._format_prompt(ref_codes, ref_text, chunk, ref_phonemes=ref_phonemes, input_phonemes=chunk_phonemes)
         payload = {
             "model": self.model_name,

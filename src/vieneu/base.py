@@ -229,10 +229,16 @@ class BaseVieneuTTS(ABC):
         # Torch decode
         else:
             with torch.no_grad():
-                codes = torch.tensor(speech_ids, dtype=torch.long)[None, None, :].to(
-                    self.codec.device
-                )
-                recon = self.codec.decode_code(codes).cpu().numpy()
+                codes = torch.tensor(speech_ids, dtype=torch.long)[None, None, :]
+                if hasattr(self.codec, "device"):
+                    codes = codes.to(self.codec.device)
+
+                recon = self.codec.decode_code(codes)
+                if hasattr(recon, "cpu"):
+                    recon = recon.cpu()
+                if hasattr(recon, "numpy"):
+                    recon = recon.numpy()
+
 
         return recon[0, 0, :]
 
@@ -268,6 +274,37 @@ class BaseVieneuTTS(ABC):
         if self.watermarker:
             return self.watermarker.apply_watermark(wav, sample_rate=self.sample_rate)
         return wav
+
+    def _format_prompt(
+        self,
+        ref_codes: Union[List[int], torch.Tensor, np.ndarray],
+        ref_text: str,
+        input_text: str,
+        ref_phonemes: Optional[str] = None,
+        input_phonemes: Optional[str] = None
+    ) -> str:
+        """
+        Format the prompt for the TTS model.
+        Common implementation for LMDeploy (Fast) and Remote backends.
+        Standard backend uses a specialized chat template via tokenizer.
+        """
+        if isinstance(ref_codes, (torch.Tensor, np.ndarray)):
+            ref_codes_list = ref_codes.flatten().tolist()
+        else:
+            ref_codes_list = ref_codes
+
+        # Import inside method to avoid potential circular dependencies between
+        # base TTS and phonemization utilities.
+        from vieneu_utils.phonemize_text import phonemize_with_dict
+
+        ref_text_phones = ref_phonemes if ref_phonemes else self.get_ref_phonemes(ref_text)
+        input_text_phones = input_phonemes if input_phonemes else phonemize_with_dict(input_text, skip_normalize=True)
+        codes_str = "".join([f"<|speech_{idx}|>" for idx in ref_codes_list])
+
+        return (
+            f"user: Convert the text to speech:<|TEXT_PROMPT_START|>{ref_text_phones} {input_text_phones}"
+            f"<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>{codes_str}"
+        )
 
     @abstractmethod
     def infer(self, text: str, **kwargs: Any) -> np.ndarray:

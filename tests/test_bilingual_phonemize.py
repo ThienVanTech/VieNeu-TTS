@@ -1,6 +1,7 @@
 import unittest
 import os
 import sys
+from unittest.mock import patch
 
 # Thêm src vào path để import module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
@@ -11,6 +12,17 @@ class TestBilingualPhonemize(unittest.TestCase):
     """
     Test suite kiểm tra logic phonemize song ngữ và cơ chế lan truyền (propagation).
     """
+
+    def setUp(self):
+        # Skip all tests in this file if espeak is not working properly
+        import subprocess
+        try:
+            # We also check if it actually returns phonemes, not just exists
+            res = subprocess.run(["espeak", "test"], capture_output=True, text=True)
+            if not res.stdout.strip():
+                self.skipTest("espeak-ng not returning output")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            self.skipTest("espeak-ng not installed")
 
     def assert_propagation(self, natural_text, tagged_text):
         """Kiểm tra câu tự nhiên phải cho ra phoneme giống hệt câu có tag."""

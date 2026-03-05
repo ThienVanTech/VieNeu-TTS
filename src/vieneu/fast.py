@@ -138,19 +138,6 @@ class FastVieNeuTTS(BaseVieneuTTS):
                 recon = self.codec.decode_code(codes).cpu().numpy()
         return recon[0, 0, :]
 
-    def _format_prompt(self, ref_codes: Union[List[int], torch.Tensor, np.ndarray], ref_text: str, input_text: str, ref_phonemes: Optional[str] = None, input_phonemes: Optional[str] = None) -> str:
-        if isinstance(ref_codes, (torch.Tensor, np.ndarray)):
-            ref_codes_list = ref_codes.flatten().tolist()
-        else:
-            ref_codes_list = ref_codes
-
-        ref_text_phones = ref_phonemes if ref_phonemes else phonemize_with_dict(ref_text)
-        input_text_phones = input_phonemes if input_phonemes else phonemize_with_dict(input_text, skip_normalize=True)
-        codes_str = "".join([f"<|speech_{idx}|>" for idx in ref_codes_list])
-        return (
-            f"user: Convert the text to speech:<|TEXT_PROMPT_START|>{ref_text_phones} {input_text_phones}"
-            f"<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>{codes_str}"
-        )
 
     def infer(self, text: str, ref_audio: Optional[Union[str, Path]] = None, ref_codes: Optional[Union[np.ndarray, torch.Tensor]] = None, ref_text: Optional[str] = None, max_chars: int = 256, silence_p: float = 0.15, crossfade_p: float = 0.0, voice: Optional[Dict[str, Any]] = None, temperature: float = 1.0, top_k: int = 50, skip_normalize: bool = False) -> np.ndarray:
 
