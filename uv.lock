@@ -4430,14 +4430,14 @@ wheels = [
 
 [[package]]
 name = "sea-g2p"
-version = "0.4.5"
+version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "phonemizer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/db/dd91687a13c25265596f4141346dad182b63b2df6ce099c71ff2b92d3a6b/sea_g2p-0.4.5.tar.gz", hash = "sha256:3f76eaec43db3319001a4431da65587a118c8670c0e73e9065873f44bbe6edfa", size = 28348776, upload-time = "2026-03-12T03:47:26.285Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a9/57/608f234a35a70895c7e11c7505267a08bb02e76763f4f9c6af11943b25c3/sea_g2p-0.4.6.tar.gz", hash = "sha256:e6b861649b793d8cef84c356afebf5629e42a2fdc1dd1b7d12fd232ed76ff974", size = 28349159, upload-time = "2026-03-12T04:44:54.132Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/c0/baaa5ccdbd1fdea43c09f667d55fd3a693287918942800586bbe395b5ccc/sea_g2p-0.4.5-py3-none-any.whl", hash = "sha256:179d0090d0ad946ed6698ab01c4cc63fd207c072e1ea3d5fe8caf6b1f0e5b2a3", size = 28371847, upload-time = "2026-03-12T03:47:08.474Z" },
+    { url = "https://files.pythonhosted.org/packages/03/45/b5bce438590c77422163c657cf1ad0e198028ce31844173d7d54ab46264c/sea_g2p-0.4.6-py3-none-any.whl", hash = "sha256:a1b49c1b9f50416865ba21b735204403c5d51624e85b24f553c931ba5d9e2427", size = 28372129, upload-time = "2026-03-12T04:44:38.609Z" },
 ]
 
 [[package]]
@@ -5262,7 +5262,7 @@ wheels = [
 
 [[package]]
 name = "vieneu"
-version = "1.2.7"
+version = "1.2.8"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
@@ -5324,7 +5324,7 @@ requires-dist = [
     { name = "onnxruntime", specifier = ">=1.23.2" },
     { name = "perth", specifier = ">=0.2.0" },
     { name = "requests" },
-    { name = "sea-g2p", specifier = ">=0.4.5" },
+    { name = "sea-g2p", specifier = ">=0.4.6" },
     { name = "torch", marker = "sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch", marker = "sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "torchaudio", marker = "sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
