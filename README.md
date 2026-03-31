@@ -28,7 +28,14 @@ https://github.com/user-attachments/assets/adb15c5b-185d-44e3-b7e4-417774cdef27
 ## 🦜 1. Installation & Web UI <a name="installation"></a>
 
 ### Setup with `uv` (Recommended)
-`uv` is the fastest way to manage dependencies. [Install uv here](https://astral.sh/uv/install).
+`uv` is the fastest way to manage dependencies. 
+```bash
+# Windows:
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Linux/macOS:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 1. **Clone the Repo:**
    ```bash
