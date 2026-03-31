@@ -6,23 +6,23 @@ backbone_configs:
   "VieNeu-TTS (GPU)":
     repo: pnnbao-ump/VieNeu-TTS
     supports_streaming: false
-    description: ⭐ Chất lượng cao nhất, yêu cầu GPU/MPS
+    description: "⭐ Chất lượng cao nhất, yêu cầu GPU/MPS"
   "VieNeu-TTS-0.3B (GPU)":
     repo: pnnbao-ump/VieNeu-TTS-0.3B
     supports_streaming: false
-    description: ⚡ Bản 0.3B tối ưu cho GPU, rất nhanh và chính xác
+    description: "⚡ Bản 0.3B tối ưu cho GPU, rất nhanh và chính xác"
   "VieNeu-TTS-v2-Turbo (CPU)":
     repo: pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF
     supports_streaming: true
-    description: 🚀 Turbo v2: Siêu nhanh, hỗ trợ multi-lingual, tối ưu tuyệt đối cho CPU & Thiết bị yếu
+    description: "🚀 Turbo v2: Siêu nhanh, hỗ trợ multi-lingual, tối ưu tuyệt đối cho CPU & Thiết bị yếu"
 
 codec_configs:
   "NeuCodec (Distill)":
     repo: neuphonic/distill-neucodec
-    description: Codec mặc định cho model GPU
+    description: "Codec mặc định cho model GPU"
     use_preencoded: false
   "VieNeu-Codec":
     repo: pnnbao-ump/VieNeu-Codec
-    description: Codec tối ưu cho Turbo v2 (ONNX)
+    description: "Codec tối ưu cho Turbo v2 (ONNX)"
     use_preencoded: false
 

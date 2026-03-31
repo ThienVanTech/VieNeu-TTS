@@ -17,7 +17,14 @@
 ## 📦 Quick Install
 
 ```bash
+# Minimal installation (Turbo/CPU Only)
 pip install vieneu
+
+# Optional: Pre-built llama-cpp-python for CPU (if building fails)
+pip install vieneu --extra-index-url https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/
+
+# Optional: macOS Metal acceleration
+pip install vieneu --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/metal/
 ```
 ---
 

@@ -3,7 +3,7 @@ import numpy as np
 import logging
 from typing import Optional, List, Dict, Any, Generator
 from .base import BaseVieneuTTS
-from vieneu_utils.phonemize_text import phonemize_with_dict
+from vieneu_utils.phonemize_text import phonemize_text
 from vieneu_utils.core_utils import split_into_chunks_v2, get_silence_duration_v2
 
 logger = logging.getLogger("Vieneu.Turbo")
@@ -46,6 +46,9 @@ class TurboVieNeuTTS(BaseVieneuTTS):
     def _load_voices(self) -> None:
         """Load external speaker embeddings if available."""
         self._preset_voices = TURBO_VOICE_ID_MAP.copy()
+        # Set first voice as default
+        if self._preset_voices:
+            self._default_voice = next(iter(self._preset_voices))
         
     def list_preset_voices(self) -> List[str]:
         return list(self._preset_voices.keys())
@@ -147,11 +150,12 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         if isinstance(ref_codes, dict):
             voice_id = ref_codes.get("voice_id", -1)
             embedding = ref_codes.get("codes")
-            if embedding is None:
+            if embedding is None or isinstance(embedding, (int, float)):
                 embedding = np.zeros((1, 128), dtype=np.float32)
             elif isinstance(embedding, list):
                 embedding = np.array(embedding, dtype=np.float32)
-            if embedding.ndim == 1:
+            
+            if isinstance(embedding, np.ndarray) and embedding.ndim == 1:
                 embedding = embedding[None, :]
             return voice_id, embedding
 
@@ -200,24 +204,27 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         skip_phonemize: bool = False,
         **kwargs
     ) -> np.ndarray:
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
-            
-        # Check if already phonemes
-        if skip_phonemize:
-            phonemes = text
+        # Fix: Use full phonemization pipeline for bilingual support
+        if not skip_phonemize:
+            phonemes = phonemize_text(text)
         else:
-            phonemes = phonemize_with_dict(text, skip_normalize=True)
+            phonemes = text
 
         chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars)
         if not chunks:
             return np.array([], dtype=np.float32)
             
+        # Fix: Fallback to default voice if none provided
+        if ref_codes is None and self._default_voice:
+            ref_codes = self.get_preset_voice(self._default_voice)
+            
         voice_id, emb = self._get_voice_params(ref_codes)
+        # Ensure voice_id is valid for backbone prompt (v2 turbo uses specific IDs)
+        v_idx = voice_id if voice_id >= 0 else 0
         
         all_wavs = []
         for i, chunk in enumerate(chunks):
-            prompt = self._format_turbo_prompt(chunk)
+            prompt = self._format_turbo_prompt(chunk, v_idx)
             
             self.backbone.reset()
             result = self.backbone(
@@ -244,10 +251,10 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         final_wav = np.concatenate(all_wavs) if len(all_wavs) > 1 else all_wavs[0]
         return self._apply_watermark(final_wav)
 
-    def _format_turbo_prompt(self, phonemes: str) -> str:
-        # Mirrors app_gguf.py's _build_prompt
+    def _format_turbo_prompt(self, phonemes: str, voice_id: int = 16) -> str:
+        # Use dynamic speaker token based on selected voice
         return (
-            f"<|speaker_16|>"
+            f"<|speaker_{voice_id}|>"
             f"<|TEXT_PROMPT_START|>{phonemes}<|TEXT_PROMPT_END|>"
             f"<|SPEECH_GENERATION_START|>"
         )
@@ -263,20 +270,23 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         skip_phonemize: bool = False,
         **kwargs
     ) -> Generator[np.ndarray, None, None]:
-        if not skip_normalize:
-            text = self.normalizer.normalize(text)
-            
-        # Check if already phonemes
-        if skip_phonemize:
-            phonemes = text
+        # Fix: Use full phonemization pipeline for bilingual support
+        if not skip_phonemize:
+            phonemes = phonemize_text(text)
         else:
-            phonemes = phonemize_with_dict(text, skip_normalize=True)
+            phonemes = text
 
         chunks = split_into_chunks_v2(phonemes, max_chunk_size=max_chars)
+        
+        # Fix: Fallback to default voice if none provided
+        if ref_codes is None and self._default_voice:
+            ref_codes = self.get_preset_voice(self._default_voice)
+            
         voice_id, emb = self._get_voice_params(ref_codes)
+        v_idx = voice_id if voice_id >= 0 else 0
         
         for i, chunk in enumerate(chunks):
-            prompt = self._format_turbo_prompt(chunk)
+            prompt = self._format_turbo_prompt(chunk, v_idx)
             
             self.backbone.reset()
             result = self.backbone(
