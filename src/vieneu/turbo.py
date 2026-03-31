@@ -224,7 +224,7 @@ class TurboVieNeuTTS(BaseVieneuTTS):
         
         all_wavs = []
         for i, chunk in enumerate(chunks):
-            prompt = self._format_turbo_prompt(chunk, v_idx)
+            prompt = self._format_turbo_prompt(chunk)
             
             self.backbone.reset()
             result = self.backbone(
