@@ -16,8 +16,8 @@
 
 ## ✨ Key Features
 - **Bilingual (English-Vietnamese)**: Smooth and natural transitions between languages powered by [sea-g2p](https://github.com/pnnbao97/sea-g2p).
-- **Instant Voice Cloning**: Clone any voice with just **3-5 seconds** of reference audio (GPU/Standard mode).
-- **Ultra-Fast Turbo Mode**: Optimized for CPU using GGUF and ONNX, requiring **NO GPU** and minimal RAM.
+- **Instant Voice Cloning**: Clone any voice with just **3-5 seconds** of reference audio (**Turbo v2** & GPU modes).
+- **Ultra-Fast Turbo Mode**: Optimized for both **CPU (GGUF)** and **GPU (LMDeploy)**, offering the fastest inference in the VieNeu family.
 - **AI Identification**: Built-in audio watermarking for responsible AI content creation.
 - **Production-Ready**: High-quality 24 kHz waveform generation, fully offline.
 
@@ -191,7 +191,7 @@ docker run --gpus all \
 
 | Model | Format | Device | Bilingual | Cloning | Speed |
 |---|---|---|---|---|---|
-| **VieNeu-v2-Turbo** | GGUF/ONNX | **CPU**/GPU | ✅ | ❌ (Coming soon) | **Extreme** |
+| **VieNeu-v2-Turbo** | GGUF/ONNX | **CPU/GPU** | ✅ | ✅ Yes | **Extreme** |
 | **VieNeu-TTS-v2** | PyTorch | GPU | ✅ | ✅ Yes | **Standard** (Coming soon) |
 | **VieNeu-TTS 0.3B** | PyTorch | GPU/CPU | ❌ | ✅ Yes | **Very Fast** |
 | **VieNeu-TTS** | PyTorch | GPU/CPU | ❌ | ✅ Yes | **Standard** |
@@ -207,7 +207,7 @@ docker run --gpus all \
 - [x] **VieNeu-TTS-v2 Turbo**: English-Vietnamese code-switching support.
 - [x] **VieNeu-Codec**: Optimized neural codec for Vietnamese (ONNX).
 - [ ] **VieNeu-TTS-v2 (Non-Turbo)**: Full high-fidelity bilingual architecture with instant **Voice Cloning** and **LMDeploy** GPU acceleration support.
-- [ ] **Turbo Voice Cloning**: Bringing instant cloning to the lightweight Turbo engine.
+- [x] **Turbo Voice Cloning**: Bringing instant cloning to the lightweight Turbo engine.
 - [ ] **Mobile SDK**: Official support for Android/iOS deployment.
 
 ---
