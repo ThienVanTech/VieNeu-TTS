@@ -106,7 +106,7 @@ tts.save(audio_custom, "output_Phạm Tuyên.wav")
 print("💾 Saved to output_Phạm Tuyên.wav")
 ```
 
-### 🦜 3. Zero-shot Voice Cloning (SDK) <a name="cloning"></a>
+### 🦜 Zero-shot Voice Cloning (SDK) <a name="cloning"></a>
 
 Clone any voice with only **3-5 seconds** of audio using the local Turbo engine:
 
@@ -128,13 +128,6 @@ audio = tts.infer(
 
 tts.save(audio, "cloned_voice.wav")
 ```
-
-### Advanced Modes
-| Mode | Description | Requirements |
-|---|---|---|
-| `turbo` | (Default) Ultra-fast CPU/GGUF inference | `onnxruntime`, `llama-cpp-python` |
-| `turbo_gpu` | Optimized Turbo mode for NVIDIA GPU | `transformers` or `lmdeploy` |
-| `remote` | Connect to a remote VieNeu API Server | `requests` |
 
 ---
 
@@ -258,5 +251,38 @@ docker run --gpus all \
 - **License:** Apache 2.0 (Free to use).
 
 ---
+## 📑 Citation
+
+```bibtex
+@misc{vieneutts2026,
+  title        = {VieNeu-TTS: Vietnamese Text-to-Speech with Instant Voice Cloning},
+  author       = {Pham Nguyen Ngoc Bao},
+  year         = {2026},
+  publisher    = {Hugging Face},
+  howpublished = {\url{https://huggingface.co/pnnbao-ump/VieNeu-TTS}}
+}
+```
+
+---
+
+## 🌟 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=pnnbao97/VieNeu-TTS&type=Date)](https://star-history.com/#pnnbao97/VieNeu-TTS&Date)
+
+---
+
+## 🤝 Contributors
+
+Thanks to all the amazing people who have contributed to this project!
+
+<a href="https://github.com/pnnbao97/VieNeu-TTS/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=pnnbao97/VieNeu-TTS" />
+</a>
+
+---
+
+## 🙏 Acknowledgements
+
+This project uses [neucodec](https://huggingface.co/neuphonic/neucodec) for audio decoding and [sea-g2p](https://github.com/pnnbao97/sea-g2p) for text normalization and phonemization.
 
 **Made with ❤️ for the Vietnamese TTS community**
