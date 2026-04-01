@@ -77,13 +77,13 @@ The `vieneu` SDK now defaults to **Turbo mode** for maximum compatibility.
 
 ### Quick Start
 ```bash
-# Minimal installation (Turbo/CPU Only)
+# Minimal installation (Builds llama-cpp from source - may take a while)
 pip install vieneu
 
-# Optional: Pre-built llama-cpp-python for CPU (if building fails)
+# Optional: For Windows users (CPU pre-built)
 pip install vieneu --extra-index-url https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/
 
-# Optional: macOS Metal acceleration
+# Optional: For macOS users (ARM64/Apple Silicon - Enables Metal GPU acceleration)
 pip install vieneu --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/metal/
 ```
 
