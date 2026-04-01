@@ -1,155 +1,25 @@
 import re
 import os
-from typing import List, Optional
-import numpy as np
-
-# Pre-compile regex for splitting
-RE_NEWLINE = re.compile(r"[\r\n]+")
-RE_SENTENCE_END = re.compile(r"(?<=[\.\!\?\…])\s+")
-RE_MINOR_PUNCT = re.compile(r"(?<=[\,\;\:\-\–\—])\s+")
-
-def join_audio_chunks(chunks: List[np.ndarray], sr: int, silence_p: float = 0.0, crossfade_p: float = 0.0) -> np.ndarray:
-    """
-    Join audio chunks with optional silence padding and crossfading.
-
-    Args:
-        chunks: List of audio waveforms as numpy arrays.
-        sr: Sample rate.
-        silence_p: Duration of silence to insert between chunks (seconds).
-        crossfade_p: Duration of crossfade between chunks (seconds).
-
-    Returns:
-        Joined audio waveform.
-    """
-    if not chunks:
-        return np.array([], dtype=np.float32)
-    if len(chunks) == 1:
-        return chunks[0]
-    
-    silence_samples = int(sr * silence_p)
-    crossfade_samples = int(sr * crossfade_p)
-    
-    final_wav = chunks[0]
-    
-    for i in range(1, len(chunks)):
-        next_chunk = chunks[i]
-        
-        if silence_samples > 0:
-            # 1. Add silence between chunks
-            silence = np.zeros(silence_samples, dtype=np.float32)
-            final_wav = np.concatenate([final_wav, silence, next_chunk])
-        elif crossfade_samples > 0:
-            # 2. Crossfade between chunks
-            overlap = min(len(final_wav), len(next_chunk), crossfade_samples)
-            if overlap > 0:
-                fade_out = np.linspace(1.0, 0.0, overlap, dtype=np.float32)
-                fade_in = np.linspace(0.0, 1.0, overlap, dtype=np.float32)
-                
-                blended = (final_wav[-overlap:] * fade_out + next_chunk[:overlap] * fade_in)
-                final_wav = np.concatenate([
-                    final_wav[:-overlap],
-                    blended,
-                    next_chunk[overlap:]
-                ])
-            else:
-                final_wav = np.concatenate([final_wav, next_chunk])
-        else:
-            # 3. Simple concatenation
-            final_wav = np.concatenate([final_wav, next_chunk])
-            
-    return final_wav
-
-def split_text_into_chunks(text: str, max_chars: int = 256) -> List[str]:
-    """
-    Split raw text into chunks no longer than max_chars.
-
-    Args:
-        text: Input text to split.
-        max_chars: Maximum number of characters per chunk.
-
-    Returns:
-        List of text chunks.
-    """
-    if not text:
-        return []
-
-    # 1. First split by newlines - each line/paragraph is handled independently
-    paragraphs = RE_NEWLINE.split(text.strip())
-    final_chunks: List[str] = []
-
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-            
-        # 2. Split current paragraph into sentences
-        sentences = RE_SENTENCE_END.split(para)
-        
-        buffer = ""
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            # If sentence itself is longer than max_chars, we must split it by minor punctuation or words
-            if len(sentence) > max_chars:
-                # Flush buffer before handling a giant sentence
-                if buffer:
-                    final_chunks.append(buffer)
-                    buffer = ""
-                
-                # Split giant sentence by minor punctuation (, ; : -)
-                sub_parts = RE_MINOR_PUNCT.split(sentence)
-                for part in sub_parts:
-                    part = part.strip()
-                    if not part: continue
-                    
-                    if len(buffer) + 1 + len(part) <= max_chars:
-                        buffer = (buffer + " " + part) if buffer else part
-                    else:
-                        if buffer: final_chunks.append(buffer)
-                        buffer = part
-                        
-                        # If even a sub-part is too long, split by spaces (words)
-                        if len(buffer) > max_chars:
-                            words = buffer.split()
-                            current = ""
-                            for word in words:
-                                if current and len(current) + 1 + len(word) > max_chars:
-                                    final_chunks.append(current)
-                                    current = word
-                                else:
-                                    current = (current + " " + word) if current else word
-                            buffer = current
-            else:
-                # Normal sentence: check if it fits in current buffer
-                if buffer and len(buffer) + 1 + len(sentence) > max_chars:
-                    final_chunks.append(buffer)
-                    buffer = sentence
-                else:
-                    buffer = (buffer + " " + sentence) if buffer else sentence
-        
-        # End of paragraph: flush whatever is in buffer
-        if buffer:
-            final_chunks.append(buffer)
-            buffer = ""
-
-    return [c.strip() for c in final_chunks if c.strip()]
-
-import re
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
+import numpy as np
+
 # ─── Regex ───────────────────────────────────────────────────────────────────
 
-RE_NEWLINE          = re.compile(r'\n+')
+RE_NEWLINE          = re.compile(r'[\r\n]+')  # dùng chung cho cả v1 và v2
 RE_SENTENCE_FINDALL = re.compile(r'[^.!?]*[.!?]|[^.!?]+')
 
+# v1 only
+RE_SENTENCE_END = re.compile(r'(?<=[\.\!\?\…])\s+')
+RE_MINOR_PUNCT  = re.compile(r'(?<=[\,\;\:\-\–\—])\s+')
+
+# v2 noise cleanup
 _NOISE_RULES: List[Tuple[re.Pattern, str]] = [
-    (re.compile(r'([.!?])[.,;:]+'), r'\1'),  # '.,' → '.'
-    (re.compile(r'[.,;:]+([.!?])'), r'\1'),  # ',.' → '.'
-    (re.compile(r'\s+[,;]\s+'),     ' '),    # ' , ' → ' '
-    (re.compile(r' {2,}'),          ' '),    # spaces thừa
+    (re.compile(r'([.!?])[.,;:]+'), r'\1'),
+    (re.compile(r'[.,;:]+([.!?])'), r'\1'),
+    (re.compile(r'\s+[,;]\s+'),     ' '),
+    (re.compile(r' {2,}'),          ' '),
 ]
 _MULTI_PUNCT = re.compile(r'([.!?])\s*[.!?]+')
 
@@ -160,7 +30,103 @@ class PhoneChunk:
     text: str
     is_sentence_end: bool  # True = kết thúc câu thật | False = cắt nhân tạo
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
+# ─── Audio utils ─────────────────────────────────────────────────────────────
+
+def join_audio_chunks(
+    chunks: List[np.ndarray],
+    sr: int,
+    silence_p: float = 0.0,
+    crossfade_p: float = 0.0,
+) -> np.ndarray:
+    if not chunks:
+        return np.array([], dtype=np.float32)
+    if len(chunks) == 1:
+        return chunks[0]
+
+    silence_samples   = int(sr * silence_p)
+    crossfade_samples = int(sr * crossfade_p)
+    final_wav = chunks[0]
+
+    for i in range(1, len(chunks)):
+        next_chunk = chunks[i]
+        if silence_samples > 0:
+            silence   = np.zeros(silence_samples, dtype=np.float32)
+            final_wav = np.concatenate([final_wav, silence, next_chunk])
+        elif crossfade_samples > 0:
+            overlap = min(len(final_wav), len(next_chunk), crossfade_samples)
+            if overlap > 0:
+                fade_out  = np.linspace(1.0, 0.0, overlap, dtype=np.float32)
+                fade_in   = np.linspace(0.0, 1.0, overlap, dtype=np.float32)
+                blended   = final_wav[-overlap:] * fade_out + next_chunk[:overlap] * fade_in
+                final_wav = np.concatenate([final_wav[:-overlap], blended, next_chunk[overlap:]])
+            else:
+                final_wav = np.concatenate([final_wav, next_chunk])
+        else:
+            final_wav = np.concatenate([final_wav, next_chunk])
+
+    return final_wav
+
+# ─── v1: split raw text ──────────────────────────────────────────────────────
+
+def split_text_into_chunks(text: str, max_chars: int = 256) -> List[str]:
+    """Split raw text (chưa phonemize) thành chunks <= max_chars."""
+    if not text:
+        return []
+
+    paragraphs   = RE_NEWLINE.split(text.strip())
+    final_chunks: List[str] = []
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+
+        sentences = RE_SENTENCE_END.split(para)
+        buffer    = ""
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+
+            if len(sentence) > max_chars:
+                if buffer:
+                    final_chunks.append(buffer)
+                    buffer = ""
+
+                sub_parts = RE_MINOR_PUNCT.split(sentence)
+                for part in sub_parts:
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if len(buffer) + 1 + len(part) <= max_chars:
+                        buffer = (buffer + ' ' + part) if buffer else part
+                    else:
+                        if buffer:
+                            final_chunks.append(buffer)
+                        buffer = part
+                        if len(buffer) > max_chars:
+                            words, current = buffer.split(), ""
+                            for word in words:
+                                if current and len(current) + 1 + len(word) > max_chars:
+                                    final_chunks.append(current)
+                                    current = word
+                                else:
+                                    current = (current + ' ' + word) if current else word
+                            buffer = current
+            else:
+                if buffer and len(buffer) + 1 + len(sentence) > max_chars:
+                    final_chunks.append(buffer)
+                    buffer = sentence
+                else:
+                    buffer = (buffer + ' ' + sentence) if buffer else sentence
+
+        if buffer:
+            final_chunks.append(buffer)
+
+    return [c.strip() for c in final_chunks if c.strip()]
+
+# ─── v2 helpers ──────────────────────────────────────────────────────────────
 
 def _pick_strongest(m: re.Match) -> str:
     s = m.group(0)
@@ -170,15 +136,10 @@ def _pick_strongest(m: re.Match) -> str:
 def _clean_phoneme_noise(text: str) -> str:
     for pattern, repl in _NOISE_RULES:
         text = pattern.sub(repl, text)
-    text = _MULTI_PUNCT.sub(_pick_strongest, text)
-    return text.strip()
+    return _MULTI_PUNCT.sub(_pick_strongest, text).strip()
 
 
 def _find_best_split(text: str, max_size: int) -> Tuple[int, bool]:
-    """
-    Một lần duyệt tìm đồng thời vị trí phẩy và space gần giữa nhất.
-    Trả về (pos, is_comma). pos=-1 nếu không tìm thấy.
-    """
     mid = max_size // 2
     best_comma_pos, best_comma_dist = -1, max_size
     best_space_pos, best_space_dist = -1, max_size
@@ -202,7 +163,6 @@ def _find_best_split(text: str, max_size: int) -> Tuple[int, bool]:
 
 
 def _smart_split_body(text: str, max_chunk_size: int) -> List[str]:
-    """Iterative split, trả về list sub-chunk không có dấu câu cuối."""
     result: List[str] = []
     stack = [text.strip()]
 
@@ -215,7 +175,6 @@ def _smart_split_body(text: str, max_chunk_size: int) -> List[str]:
             continue
 
         pos, _ = _find_best_split(seg, max_chunk_size)
-
         if pos != -1:
             left  = seg[:pos].rstrip()
             right = seg[pos + 1:].lstrip()
@@ -242,16 +201,13 @@ def _split_sentence(sent: str, max_chunk_size: int) -> List[PhoneChunk]:
         return []
 
     if sent[-1] in '.!?':
-        body  = sent[:-1].rstrip()
-        punct = sent[-1]
+        body, punct = sent[:-1].rstrip(), sent[-1]
     else:
-        body  = sent
-        punct = '.'
+        body, punct = sent, '.'
 
     if not body:
         return []
 
-    # Câu vừa khít → sentence end thật
     if len(sent) <= max_chunk_size:
         return [PhoneChunk(text=body + punct, is_sentence_end=True)]
 
@@ -269,7 +225,7 @@ def _split_sentence(sent: str, max_chunk_size: int) -> List[PhoneChunk]:
         if chunk
     ]
 
-# ─── Public API ──────────────────────────────────────────────────────────────
+# ─── v2: split phoneme string ────────────────────────────────────────────────
 
 def split_into_chunks_v2(
     full_phones: str,
@@ -278,8 +234,8 @@ def split_into_chunks_v2(
 ) -> List[PhoneChunk]:
     """
     Phân đoạn chuỗi phoneme thành các PhoneChunk.
-      is_sentence_end=True  → kết thúc câu thật → cần silence khi ghép audio
-      is_sentence_end=False → cắt nhân tạo tại space/phẩy → không cần silence
+      is_sentence_end=True  → kết thúc câu thật → cần silence
+      is_sentence_end=False → cắt nhân tạo → không cần silence
     """
     if not full_phones:
         return []
@@ -299,10 +255,8 @@ def split_into_chunks_v2(
     if not raw_parts:
         return []
 
-    # Merge chunk quá ngắn
     merged: List[PhoneChunk] = []
-    i = 0
-    n = len(raw_parts)
+    i, n = 0, len(raw_parts)
     while i < n:
         cur = raw_parts[i]
         while len(cur.text) < min_chunk_size and i + 1 < n:
@@ -316,7 +270,6 @@ def split_into_chunks_v2(
         merged.append(cur)
         i += 1
 
-    # Gộp ngược chunk cuối nếu vẫn quá ngắn
     if len(merged) >= 2 and len(merged[-1].text) < min_chunk_size:
         last      = merged.pop()
         candidate = merged[-1].text.rstrip('.!?').rstrip() + ' ' + last.text
@@ -331,17 +284,18 @@ def split_into_chunks_v2(
 def get_silence_duration_v2(chunk: PhoneChunk) -> float:
     """
     Silence sau chunk (giây).
-      is_sentence_end=False → 0.0s  (cắt nhân tạo, không cần nghỉ)
-      kết thúc '.' → 0.3s
+      is_sentence_end=False → 0.0s
       kết thúc '!'/'?' → 0.4s
+      kết thúc '.' → 0.3s
     """
     if not chunk.is_sentence_end:
         return 0.0
     return 0.4 if chunk.text.strip()[-1] in '!?' else 0.3
 
+# ─── Misc ────────────────────────────────────────────────────────────────────
+
 def env_bool(name: str, default: bool = False) -> bool:
-    """Get boolean value from environment variable."""
     v = os.getenv(name)
     if v is None:
         return default
-    return v.strip().lower() in ("1", "true", "yes", "y", "on")
+    return v.strip().lower() in ('1', 'true', 'yes', 'y', 'on')
