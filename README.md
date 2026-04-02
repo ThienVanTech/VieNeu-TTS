@@ -21,7 +21,7 @@
 - **AI Identification**: Built-in audio watermarking for responsible AI content creation.
 - **Production-Ready**: High-quality 24 kHz waveform generation, fully offline.
 
-https://github.com/user-attachments/assets/adb15c5b-185d-44e3-b7e4-417774cdef27
+[<img width="600" height="595" alt="VieNeu-TTS Demo" src="https://github.com/user-attachments/assets/021f6671-2d7f-4635-91fb-88b2ab0ddbcd" />](https://github.com/user-attachments/assets/021f6671-2d7f-4635-91fb-88b2ab0ddbcd)
 
 ## 📌 Table of Contents
 
