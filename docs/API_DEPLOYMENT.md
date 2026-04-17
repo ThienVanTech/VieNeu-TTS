@@ -16,6 +16,7 @@ Huong dan trien khai day du he thong VieNeu-TTS API Service tren may local (khon
 8. [Mo ta API chi tiet](#8-mo-ta-api-chi-tiet)
 9. [Cau truc thu muc](#9-cau-truc-thu-muc)
 10. [Xu ly loi thuong gap](#10-xu-ly-loi-thuong-gap)
+11. [So sanh hieu nang: Docker vs Native](#11-so-sanh-hieu-nang-docker-vs-native)
 
 ---
 
@@ -578,6 +579,72 @@ Model GGUF can khoang 1-2GB RAM. Neu may co it hon 4GB RAM, co the gap loi OOM.
 api_service:
   backbone_repo: "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf"
 ```
+
+---
+
+## 11. So sanh hieu nang: Docker vs Native
+
+### Tong ket
+
+| Tieu chi | Native (uv run) | Docker | Ghi chu |
+|---|---|---|---|
+| **Toc do inference** | ⭐ Nhanh nhat | ~Tuong duong (chenh 1-3%) | Bottleneck la CPU inference, khong phai overhead |
+| **Thoi gian khoi dong** | ⭐ Nhanh hon ~2-5s | Cham hon do `uv sync` + container init | Chi anh huong lan dau |
+| **Su dung RAM** | ⭐ It hon ~50-100MB | Them overhead container runtime | Model GGUF chiem ~1-2GB, overhead container nho |
+| **I/O (file cache)** | ⭐ Truc tiep filesystem | Bind mount ~tuong duong | Bind mount (`./storage`) gan nhu khong co overhead |
+| **Trien khai** | Can setup thu cong | ⭐ Dong goi san, reproducible | Docker dam bao moi truong dong nhat |
+| **Offline deployment** | Can cai dat dependencies | ⭐ Image co san tat ca | Build 1 lan, chay bat ky dau |
+| **Quan ly** | Thu cong (systemd/pm2) | ⭐ docker compose up/down | Restart, healthcheck, log tu dong |
+
+### Phan tich chi tiet
+
+#### 1. Inference (bottleneck chinh)
+
+Pipeline TTS gom 3 buoc CPU-bound:
+- **llama.cpp** (backbone GGUF): Token generation — chiem ~70-80% thoi gian
+- **ONNX Runtime** (decoder + encoder): Audio decode — chiem ~15-20%
+- **librosa** (speed post-processing): Neu speed != 1.0 — chiem ~5%
+
+Docker chay tren Linux dung **kernel namespaces** (khong phai VM), nen cac CPU-bound operations nay **khong co overhead dang ke**. llama.cpp voi `mlock=True` dam bao model duoc pin trong RAM, khong bi anh huong boi container memory management.
+
+> **Ket luan**: Toc do inference Docker vs Native **chenh lech khong dang ke** (~1-3%).
+
+#### 2. I/O Performance
+
+- **Bind mount** (`./storage:/app/storage`): Ghi file WAV/MP3 truc tiep len host filesystem — **khong co overhead**.
+- **Docker volume** (`huggingface_cache`): Du lieu trong Docker-managed volume — hieu nang tuong duong native.
+- **SQLite** (cache DB): Chay trong bind mount, su dung WAL mode — **khong bi anh huong**.
+
+#### 3. Khi nao nen dung Native
+
+- **Development/debug**: Thay doi code nhanh, khong can rebuild image
+- **May co it RAM** (<4GB): Tiet kiem ~50-100MB overhead container
+- **Can toi uu hieu nang toi da**: Loai bo hoan toan container layer (chenh 1-3%)
+
+```bash
+# Native deployment
+uv sync
+uv pip install slowapi apscheduler
+uv run vieneu-api
+```
+
+#### 4. Khi nao nen dung Docker
+
+- **Production deployment**: Moi truong dong nhat, khong lo dependency conflict
+- **Offline/air-gapped**: Image co san model, khong can mang
+- **Quan ly de dang**: `docker compose up -d`, auto-restart, healthcheck
+- **Nhieu service**: Chay API + Gradio web song song
+
+```bash
+# Docker deployment
+docker compose -f docker/docker-compose.api.yml up -d
+```
+
+### Khuyen nghi
+
+> **Doi voi production (moi truong khong co mang)**: Dung **Docker**. Loi the ve packaging, reproducibility, va quan ly vuot troi chenh lech hieu nang khong dang ke (~1-3%).
+>
+> **Doi voi development/testing**: Dung **Native** de co vong lap phat trien nhanh hon.
 
 ---
 

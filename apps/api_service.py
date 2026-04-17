@@ -194,23 +194,23 @@ class SynthesizeRequest(BaseModel):
             "replace the old cached file."
         ),
     )
-    temperature: float = Field(
-        default=0.4,
+    temperature: Optional[float] = Field(
+        default=None,
         ge=0.1,
         le=1.5,
-        description="Generation temperature. Higher = more varied but less stable.",
+        description="Generation temperature. Higher = more varied but less stable. Default: 0.4.",
     )
-    top_k: int = Field(
-        default=50,
+    top_k: Optional[int] = Field(
+        default=None,
         ge=1,
         le=200,
-        description="Top-K sampling parameter for token generation.",
+        description="Top-K sampling parameter for token generation. Default: 50.",
     )
-    max_chars_per_chunk: int = Field(
-        default=256,
+    max_chars_per_chunk: Optional[int] = Field(
+        default=None,
         ge=128,
         le=512,
-        description="Max characters per text chunk for synthesis.",
+        description="Max characters per text chunk for synthesis. Default: 256.",
     )
 
 
@@ -262,15 +262,28 @@ async def synthesize(
     output_format = req.output_format or lang_cfg.get("output_format", "wav")
 
     # Resolve generation parameters: request > env > config > hardcoded default
-    temperature = req.temperature
-    if temperature == 0.4:  # default from schema — check config/env overrides
-        temperature = float(os.getenv("TTS_TEMPERATURE", "0")) or gen_cfg.get("temperature", 0.4)
-    top_k = req.top_k
-    if top_k == 50:
-        top_k = int(os.getenv("TTS_TOP_K", "0")) or gen_cfg.get("top_k", 50)
-    max_chars = req.max_chars_per_chunk
-    if max_chars == 256:
-        max_chars = int(os.getenv("TTS_MAX_CHARS_PER_CHUNK", "0")) or gen_cfg.get("max_chars_per_chunk", 256)
+    env_temp = os.getenv("TTS_TEMPERATURE")
+    env_topk = os.getenv("TTS_TOP_K")
+    env_maxc = os.getenv("TTS_MAX_CHARS_PER_CHUNK")
+
+    temperature = (
+        req.temperature
+        if req.temperature is not None
+        else float(env_temp) if env_temp is not None
+        else gen_cfg.get("temperature", 0.4)
+    )
+    top_k = (
+        req.top_k
+        if req.top_k is not None
+        else int(env_topk) if env_topk is not None
+        else gen_cfg.get("top_k", 50)
+    )
+    max_chars = (
+        req.max_chars_per_chunk
+        if req.max_chars_per_chunk is not None
+        else int(env_maxc) if env_maxc is not None
+        else gen_cfg.get("max_chars_per_chunk", 256)
+    )
 
     if req.is_load_from_cache:
         entry = cache.lookup(req.text, req.lang, req.speed, voice_id)
