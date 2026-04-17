@@ -104,7 +104,7 @@ class TTSWorker:
     def start(self) -> None:
         """Launch the background consumer task."""
         if self._task is None or self._task.done():
-            self._task = asyncio.get_event_loop().create_task(self._consumer())
+            self._task = asyncio.get_running_loop().create_task(self._consumer())
             logger.info("TTS worker started")
 
     @property
@@ -121,7 +121,7 @@ class TTSWorker:
         while True:
             req = await self._queue.get()
             try:
-                path = await asyncio.get_event_loop().run_in_executor(
+                path = await asyncio.get_running_loop().run_in_executor(
                     None, self._synthesize, req
                 )
                 req.future.set_result(path)

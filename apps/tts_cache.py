@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +53,7 @@ class TTSCache:
     ) -> None:
         self.db_path = db_path
         self.cache_dir = cache_dir
+        self._lock = threading.Lock()
 
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -83,24 +85,25 @@ class TTSCache:
     ) -> Optional[CacheEntry]:
         """Return the cached entry if both the DB record and physical file exist."""
         h = _compute_hash(text, lang, speed, voice_id)
-        row = self._conn.execute(
-            "SELECT * FROM tts_cache WHERE hash = ?", (h,)
-        ).fetchone()
-        if row is None:
-            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM tts_cache WHERE hash = ?", (h,)
+            ).fetchone()
+            if row is None:
+                return None
 
-        entry = CacheEntry(*row)
-        if not os.path.isfile(entry.file_path):
-            self._conn.execute("DELETE FROM tts_cache WHERE hash = ?", (h,))
+            entry = CacheEntry(*row)
+            if not os.path.isfile(entry.file_path):
+                self._conn.execute("DELETE FROM tts_cache WHERE hash = ?", (h,))
+                self._conn.commit()
+                return None
+
+            self._conn.execute(
+                "UPDATE tts_cache SET last_used = ? WHERE hash = ?",
+                (time.time(), h),
+            )
             self._conn.commit()
-            return None
-
-        self._conn.execute(
-            "UPDATE tts_cache SET last_used = ? WHERE hash = ?",
-            (time.time(), h),
-        )
-        self._conn.commit()
-        return entry
+            return entry
 
     def store(
         self,
@@ -114,52 +117,54 @@ class TTSCache:
         h = _compute_hash(text, lang, speed, voice_id)
         now = time.time()
 
-        old = self._conn.execute(
-            "SELECT file_path FROM tts_cache WHERE hash = ?", (h,)
-        ).fetchone()
-        if old is not None:
-            old_path = old[0]
-            if old_path != file_path and os.path.isfile(old_path):
-                try:
-                    os.remove(old_path)
-                except OSError:
-                    pass
-            self._conn.execute(
-                """UPDATE tts_cache
-                   SET file_path = ?, created_at = ?, last_used = ?
-                   WHERE hash = ?""",
-                (file_path, now, now, h),
-            )
-        else:
-            self._conn.execute(
-                """INSERT INTO tts_cache
-                   (hash, text, lang, speed, voice_id, file_path, created_at, last_used)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (h, text, lang, speed, voice_id, file_path, now, now),
-            )
-        self._conn.commit()
+        with self._lock:
+            old = self._conn.execute(
+                "SELECT file_path FROM tts_cache WHERE hash = ?", (h,)
+            ).fetchone()
+            if old is not None:
+                old_path = old[0]
+                if old_path != file_path and os.path.isfile(old_path):
+                    try:
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+                self._conn.execute(
+                    """UPDATE tts_cache
+                       SET file_path = ?, created_at = ?, last_used = ?
+                       WHERE hash = ?""",
+                    (file_path, now, now, h),
+                )
+            else:
+                self._conn.execute(
+                    """INSERT INTO tts_cache
+                       (hash, text, lang, speed, voice_id, file_path, created_at, last_used)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (h, text, lang, speed, voice_id, file_path, now, now),
+                )
+            self._conn.commit()
 
-        row = self._conn.execute(
-            "SELECT * FROM tts_cache WHERE hash = ?", (h,)
-        ).fetchone()
-        return CacheEntry(*row)
+            row = self._conn.execute(
+                "SELECT * FROM tts_cache WHERE hash = ?", (h,)
+            ).fetchone()
+            return CacheEntry(*row)
 
     def invalidate(
         self, text: str, lang: str, speed: float, voice_id: str
     ) -> None:
         """Remove a cache entry and its physical file."""
         h = _compute_hash(text, lang, speed, voice_id)
-        row = self._conn.execute(
-            "SELECT file_path FROM tts_cache WHERE hash = ?", (h,)
-        ).fetchone()
-        if row is not None:
-            if os.path.isfile(row[0]):
-                try:
-                    os.remove(row[0])
-                except OSError:
-                    pass
-            self._conn.execute("DELETE FROM tts_cache WHERE hash = ?", (h,))
-            self._conn.commit()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT file_path FROM tts_cache WHERE hash = ?", (h,)
+            ).fetchone()
+            if row is not None:
+                if os.path.isfile(row[0]):
+                    try:
+                        os.remove(row[0])
+                    except OSError:
+                        pass
+                self._conn.execute("DELETE FROM tts_cache WHERE hash = ?", (h,))
+                self._conn.commit()
 
     def cleanup_old(self, max_age_days: int = CLEANUP_DAYS) -> int:
         """Delete entries (and files) older than *max_age_days*.
@@ -168,20 +173,21 @@ class TTSCache:
             Number of entries removed.
         """
         cutoff = time.time() - max_age_days * 86400
-        rows = self._conn.execute(
-            "SELECT id, file_path FROM tts_cache WHERE last_used < ?",
-            (cutoff,),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, file_path FROM tts_cache WHERE last_used < ?",
+                (cutoff,),
+            ).fetchall()
 
-        for row_id, fpath in rows:
-            if os.path.isfile(fpath):
-                try:
-                    os.remove(fpath)
-                except OSError:
-                    pass
-            self._conn.execute("DELETE FROM tts_cache WHERE id = ?", (row_id,))
+            for row_id, fpath in rows:
+                if os.path.isfile(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
+                self._conn.execute("DELETE FROM tts_cache WHERE id = ?", (row_id,))
 
-        self._conn.commit()
+            self._conn.commit()
         if rows:
             logger.info(f"Cache cleanup: removed {len(rows)} stale entries")
         return len(rows)

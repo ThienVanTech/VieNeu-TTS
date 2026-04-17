@@ -252,7 +252,7 @@ async def synthesize(
                 headers={"X-Cache": "HIT"},
             )
 
-    future: asyncio.Future = asyncio.get_event_loop().create_future()
+    future: asyncio.Future = asyncio.get_running_loop().create_future()
     job = TTSRequest(
         text=req.text,
         lang=req.lang,
