@@ -173,9 +173,15 @@ api_service:
 
   device: "cpu"
 
+  # Cai dat tham so generation (tuong ung voi giao dien web)
+  generation:
+    temperature: 0.4          # Do sang tao (0.1-1.5)
+    top_k: 50                 # Top-K sampling (1-200)
+    max_chars_per_chunk: 256  # Do dai toi da moi doan (128-512)
+
   languages:
     vi:
-      default_voice_id: ""      # de trong = dung voice mac dinh
+      default_voice_id: ""      # de trong = dung voice mac dinh (voice dau tien tu voices.json)
       default_speed: 1.0
       output_format: "wav"
     en:
@@ -183,6 +189,10 @@ api_service:
       default_speed: 1.0
       output_format: "wav"
 ```
+
+> **Luu y ve voice mac dinh**: Khi `default_voice_id` de trong, he thong se dung voice dau tien tu file `voices.json` (duoc tai kem model). Danh sach voice co the xem qua endpoint `GET /v1/tts/voices`.
+
+> **Luu y ve tham so generation**: Cac tham so `temperature`, `top_k`, `max_chars_per_chunk` tuong ung voi cac cai dat trong giao dien Gradio web (Temperature, Max Chars per Chunk). Gia tri mac dinh da duoc toi uu cho CPU Turbo v2.
 
 ---
 
@@ -306,52 +316,105 @@ Import file `tests/postman_collection.json` vao Postman. Cau hinh bien moi truon
 
 ## 7. Trien khai bang Docker
 
-### 7.1. Build image
+### 7.1. Chuan bi model local (bat buoc cho moi truong khong co mang)
+
+Truoc khi build Docker image, tai model ve may:
+
+```bash
+# Cai dat huggingface-cli
+uv pip install huggingface-hub[cli]
+
+# Tai Backbone model (GGUF - ~600MB)
+huggingface-cli download pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF \
+    --local-dir ./models/backbone
+
+# Tai Codec model (ONNX - ~50MB)
+huggingface-cli download pnnbao-ump/VieNeu-Codec \
+    --local-dir ./models/codec
+```
+
+Sau khi tai xong, cau truc thu muc:
+
+```
+models/
+  backbone/
+    vieneu-tts-v2-turbo.gguf    # Backbone model (~600MB)
+    voices.json                  # Preset voices
+  codec/
+    vieneu_decoder.onnx          # Decoder (~50MB)
+    vieneu_encoder.onnx          # Encoder (~20MB)
+```
+
+### 7.2. Cau hinh .env cho Docker
+
+```bash
+cp .env.example .env
+```
+
+Chinh sua `.env`:
+
+```env
+TTS_USERNAME=admin
+TTS_PASSWORD=your_secure_password_here
+
+# Su dung model local (bat buoc khi khong co mang)
+TTS_BACKBONE_REPO=/app/models/backbone
+
+# Default voice (de trong = dung voice dau tien tu voices.json)
+# TTS_DEFAULT_VOICE=
+
+# Generation parameters
+TTS_TEMPERATURE=0.4
+TTS_MAX_CHARS_PER_CHUNK=256
+```
+
+### 7.3. Build image
 
 ```bash
 docker compose -f docker/docker-compose.api.yml build
 ```
 
-### 7.2. Chay container
+> **Luu y**: Lenh build se tu dong copy thu muc `models/` vao image. Neu ban chua tai model, container se tu dong download tu HuggingFace khi khoi dong (can mang).
+
+### 7.4. Chay container
 
 ```bash
-# Tao file .env neu chua co
-cp .env.example .env
-# Chinh sua .env voi TTS_USERNAME, TTS_PASSWORD
-
-# Khoi chay
 docker compose -f docker/docker-compose.api.yml up -d
 ```
 
-### 7.3. Kiem tra logs
+### 7.5. Kiem tra logs
 
 ```bash
 docker logs -f vieneu-tts-api
 ```
 
-### 7.4. Dung container
+### 7.6. Dung container
 
 ```bash
 docker compose -f docker/docker-compose.api.yml down
 ```
 
-### 7.5. Volume mapping
+### 7.7. Volume mapping
 
 | Host | Container | Mo ta |
 |---|---|---|
-| Docker volume `api_storage` | `/app/storage` | Audio cache + SQLite DB |
-| Docker volume `huggingface_cache` | `/root/.cache/huggingface` | Model cache |
+| `./storage/` | `/app/storage` | Audio cache + SQLite DB (bind mount, truy cap truc tiep tu host) |
+| `./models/` | `/app/models` | Model files local (bind mount) |
+| Docker volume `huggingface_cache` | `/root/.cache/huggingface` | HuggingFace cache (chi khi download online) |
 
-De dung model da tai san (offline), mount thu muc models:
+> **Bind mount**: Thu muc `storage/` duoc mount truc tiep tu host, ban co the truy cap file audio va database tu ben ngoai container.
+
+### 7.8. Chay kem Gradio Web UI (so sanh ket qua)
+
+De chay Gradio web UI song song voi API service (can GPU):
 
 ```bash
-docker run -d \
-  -p 8000:8000 \
-  -v $(pwd)/models:/app/models \
-  -v $(pwd)/storage:/app/storage \
-  -e TTS_USERNAME=admin \
-  -e TTS_PASSWORD=admin \
-  vieneu-tts-api
+docker compose -f docker/docker-compose.api.yml --profile web up -d
+```
+
+Web UI se co tai `http://localhost:7860`. Gradio cung co trang API docs tai:
+```
+http://localhost:7860/?view=api
 ```
 
 ---
@@ -374,6 +437,9 @@ Tao giong noi tu van ban.
 | `voice_id` | string | Khong | `null` | ID cua giong doc. De null = dung voice mac dinh |
 | `output_format` | string | Khong | `"wav"` | Dinh dang output: `"wav"` hoac `"mp3"` |
 | `is_load_from_cache` | bool | Khong | `true` | `true`: tra ve file da cache neu co. `false`: luon tao moi, thay the file cache cu. |
+| `temperature` | float | Khong | `0.4` | Do sang tao (0.1-1.5). Cao = da dang nhung de loi. Thap = on dinh. |
+| `top_k` | int | Khong | `50` | Top-K sampling (1-200). |
+| `max_chars_per_chunk` | int | Khong | `256` | Do dai toi da moi doan xu ly (128-512). |
 
 **Response:**
 - Thanh cong: File audio (WAV hoac MP3) voi header `X-Cache: HIT` hoac `X-Cache: MISS`
@@ -387,7 +453,10 @@ Tao giong noi tu van ban.
   "speed": 1.2,
   "voice_id": null,
   "output_format": "wav",
-  "is_load_from_cache": true
+  "is_load_from_cache": true,
+  "temperature": 0.4,
+  "top_k": 50,
+  "max_chars_per_chunk": 256
 }
 ```
 

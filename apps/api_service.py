@@ -75,7 +75,9 @@ def _load_tts_engine():
 
     cfg = _load_config()
     api_cfg = cfg.get("api_service", {})
-    backbone_repo = api_cfg.get(
+
+    # Allow env var override for backbone repo (e.g. local path in Docker)
+    backbone_repo = os.getenv("TTS_BACKBONE_REPO") or api_cfg.get(
         "backbone_repo", "pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF"
     )
     device = api_cfg.get("device", "cpu")
@@ -192,6 +194,24 @@ class SynthesizeRequest(BaseModel):
             "replace the old cached file."
         ),
     )
+    temperature: float = Field(
+        default=0.4,
+        ge=0.1,
+        le=1.5,
+        description="Generation temperature. Higher = more varied but less stable.",
+    )
+    top_k: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        description="Top-K sampling parameter for token generation.",
+    )
+    max_chars_per_chunk: int = Field(
+        default=256,
+        ge=128,
+        le=512,
+        description="Max characters per text chunk for synthesis.",
+    )
 
 
 class HealthResponse(BaseModel):
@@ -237,8 +257,20 @@ async def synthesize(
     cfg = _load_config()
     api_cfg = cfg.get("api_service", {})
     lang_cfg = api_cfg.get("languages", {}).get(req.lang, {})
-    voice_id = req.voice_id or lang_cfg.get("default_voice_id", "")
+    gen_cfg = api_cfg.get("generation", {})
+    voice_id = req.voice_id or os.getenv("TTS_DEFAULT_VOICE") or lang_cfg.get("default_voice_id", "")
     output_format = req.output_format or lang_cfg.get("output_format", "wav")
+
+    # Resolve generation parameters: request > env > config > hardcoded default
+    temperature = req.temperature
+    if temperature == 0.4:  # default from schema — check config/env overrides
+        temperature = float(os.getenv("TTS_TEMPERATURE", "0")) or gen_cfg.get("temperature", 0.4)
+    top_k = req.top_k
+    if top_k == 50:
+        top_k = int(os.getenv("TTS_TOP_K", "0")) or gen_cfg.get("top_k", 50)
+    max_chars = req.max_chars_per_chunk
+    if max_chars == 256:
+        max_chars = int(os.getenv("TTS_MAX_CHARS_PER_CHUNK", "0")) or gen_cfg.get("max_chars_per_chunk", 256)
 
     if req.is_load_from_cache:
         entry = cache.lookup(req.text, req.lang, req.speed, voice_id)
@@ -260,6 +292,9 @@ async def synthesize(
         voice_id=voice_id,
         output_format=output_format,
         future=future,
+        temperature=temperature,
+        top_k=top_k,
+        max_chars=max_chars,
     )
 
     try:

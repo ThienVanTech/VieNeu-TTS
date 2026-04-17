@@ -36,7 +36,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"text\": \"Xin chào, đây là bài test giọng nói tiếng Việt.\",\n  \"lang\": \"vi\",\n  \"speed\": 1.0,\n  \"output_format\": \"wav\",\n  \"is_load_from_cache\": true\n}"
+					"raw": "{\n  \"text\": \"Xin chào, đây là bài test giọng nói tiếng Việt.\",\n  \"lang\": \"vi\",\n  \"speed\": 1.0,\n  \"output_format\": \"wav\",\n  \"is_load_from_cache\": true,\n  \"temperature\": 0.4,\n  \"top_k\": 50,\n  \"max_chars_per_chunk\": 256\n}"
 				},
 				"description": "Synthesize Vietnamese text to WAV audio.  Uses cache if available."
 			}

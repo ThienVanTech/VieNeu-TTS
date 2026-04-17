@@ -30,9 +30,16 @@ codec_configs:
 api_service:
   backbone_repo: "pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF"
   device: "cpu"
+
+  # Generation parameters (can be overridden per request)
+  generation:
+    temperature: 0.4          # 0.1–1.5: higher = more creative but less stable
+    top_k: 50                 # 1–200: token sampling parameter
+    max_chars_per_chunk: 256  # 128–512: max chars per text chunk
+
   languages:
     vi:
-      default_voice_id: ""
+      default_voice_id: ""    # empty = use first preset voice (from voices.json)
       default_speed: 1.0
       output_format: "wav"
     en:

@@ -33,6 +33,9 @@ class TTSRequest:
     voice_id: Optional[str]
     output_format: str
     future: asyncio.Future
+    temperature: float = 0.4
+    top_k: int = 50
+    max_chars: int = 256
 
 
 def _apply_speed(audio: np.ndarray, speed: float, sr: int = 24_000) -> np.ndarray:
@@ -141,7 +144,8 @@ class TTSWorker:
         logger.info(
             f"Synthesizing: lang={req.lang}, speed={req.speed}, "
             f"voice={req.voice_id}, fmt={req.output_format}, "
-            f"len={len(req.text)} chars"
+            f"temp={req.temperature}, top_k={req.top_k}, "
+            f"max_chars={req.max_chars}, len={len(req.text)} chars"
         )
 
         voice_data = None
@@ -153,7 +157,11 @@ class TTSWorker:
                     f"Voice '{req.voice_id}' not found, using default"
                 )
 
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {
+            "temperature": req.temperature,
+            "top_k": req.top_k,
+            "max_chars": req.max_chars,
+        }
         if voice_data is not None:
             kwargs["voice"] = voice_data
 

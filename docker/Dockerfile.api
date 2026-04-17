@@ -33,8 +33,18 @@ RUN uv sync --no-dev --no-install-project
 COPY . .
 RUN uv sync --no-dev
 
+# Install API-specific extras (slowapi for rate limiting, apscheduler for cleanup)
+RUN uv pip install slowapi apscheduler
+
+# Copy local models if available (for offline deployment).
+# Place pre-downloaded models in ./models/ before building:
+#   models/backbone/  →  HuggingFace backbone repo contents
+#   models/codec/     →  HuggingFace codec repo contents
+# Then set TTS_BACKBONE_REPO=/app/models/backbone in your .env
+COPY models/ /app/models/
+
 # Persistent volumes
-VOLUME ["/app/storage", "/root/.cache/huggingface"]
+VOLUME ["/app/storage"]
 
 EXPOSE 8000
 
