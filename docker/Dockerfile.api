@@ -1,0 +1,59 @@
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/root/.cache/huggingface \
+    PHONEMIZER_ESPEAK_LIBRARY=/usr/lib/x86_64-linux-gnu/libespeak-ng.so.1 \
+    UV_PROJECT_ENVIRONMENT="/opt/venv" \
+    PATH="/opt/venv/bin:$PATH"
+
+# System dependencies needed by the TTS pipeline
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    espeak-ng \
+    libespeak-ng1 \
+    build-essential \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+# --no-install-project avoids building the project itself, which requires
+# the src/ directory that hasn't been copied yet.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev --no-install-project
+
+# Copy application source
+COPY . .
+RUN uv sync --no-dev
+
+# Install API-specific extras (slowapi for rate limiting, apscheduler for cleanup)
+RUN uv pip install slowapi apscheduler
+
+# Copy local models if available (for offline deployment).
+# Place pre-downloaded models in ./models/ before building:
+#   models/backbone/  →  HuggingFace backbone repo contents
+#   models/codec/     →  HuggingFace codec repo contents
+# Then set TTS_BACKBONE_REPO=/app/models/backbone in your .env
+COPY models/ /app/models/
+
+# Persistent volumes
+VOLUME ["/app/storage"]
+
+EXPOSE 8000
+
+ENV TTS_HOST=0.0.0.0 \
+    TTS_PORT=8000 \
+    TTS_CACHE_DIR=/app/storage/audio_cache \
+    TTS_DB_PATH=/app/storage/tts_cache.db
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["uv", "run", "vieneu-api"]
