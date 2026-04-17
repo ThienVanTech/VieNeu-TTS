@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: vieneu-tts-api
+    restart: unless-stopped
+    ports:
+      - "${TTS_PORT:-8000}:8000"
+    volumes:
+      - api_storage:/app/storage
+      - huggingface_cache:/root/.cache/huggingface
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      - TTS_USERNAME=${TTS_USERNAME:-admin}
+      - TTS_PASSWORD=${TTS_PASSWORD:-admin}
+      - TTS_HOST=0.0.0.0
+      - TTS_PORT=8000
+      - TTS_CACHE_DIR=/app/storage/audio_cache
+      - TTS_DB_PATH=/app/storage/tts_cache.db
+      - TTS_CLEANUP_DAYS=${TTS_CLEANUP_DAYS:-30}
+      - TTS_RATE_LIMIT=${TTS_RATE_LIMIT:-30/minute}
+      - HF_HOME=/root/.cache/huggingface
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  api_storage:
+  huggingface_cache:

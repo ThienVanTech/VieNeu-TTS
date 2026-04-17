@@ -1,0 +1,46 @@
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/root/.cache/huggingface \
+    UV_PROJECT_ENVIRONMENT="/opt/venv" \
+    PATH="/opt/venv/bin:$PATH"
+
+# System dependencies needed by the TTS pipeline
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    espeak-ng \
+    libespeak-ng1 \
+    build-essential \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev
+
+# Copy application source
+COPY . .
+RUN uv sync --no-dev
+
+# Persistent volumes
+VOLUME ["/app/storage", "/root/.cache/huggingface"]
+
+EXPOSE 8000
+
+ENV TTS_HOST=0.0.0.0 \
+    TTS_PORT=8000 \
+    TTS_CACHE_DIR=/app/storage/audio_cache \
+    TTS_DB_PATH=/app/storage/tts_cache.db
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["uv", "run", "vieneu-api"]

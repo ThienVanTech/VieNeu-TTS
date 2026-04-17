@@ -1,0 +1,98 @@
+{
+	"info": {
+		"name": "VieNeu-TTS API Service",
+		"description": "Postman collection for the VieNeu-TTS API Service.  Set the environment variables `base_url`, `username`, and `password` before running.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "base_url", "value": "http://localhost:8000" },
+		{ "key": "username", "value": "admin" },
+		{ "key": "password", "value": "admin" }
+	],
+	"auth": {
+		"type": "basic",
+		"basic": [
+			{ "key": "username", "value": "{{username}}", "type": "string" },
+			{ "key": "password", "value": "{{password}}", "type": "string" }
+		]
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"url": { "raw": "{{base_url}}/health" },
+				"auth": { "type": "noauth" },
+				"description": "Unauthenticated health check endpoint."
+			}
+		},
+		{
+			"name": "Synthesize (Vietnamese, WAV, from cache)",
+			"request": {
+				"method": "POST",
+				"url": { "raw": "{{base_url}}/v1/tts/synthesize" },
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"Xin chào, đây là bài test giọng nói tiếng Việt.\",\n  \"lang\": \"vi\",\n  \"speed\": 1.0,\n  \"output_format\": \"wav\",\n  \"is_load_from_cache\": true\n}"
+				},
+				"description": "Synthesize Vietnamese text to WAV audio.  Uses cache if available."
+			}
+		},
+		{
+			"name": "Synthesize (Vietnamese, MP3, no cache)",
+			"request": {
+				"method": "POST",
+				"url": { "raw": "{{base_url}}/v1/tts/synthesize" },
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"Chào buổi sáng!\",\n  \"lang\": \"vi\",\n  \"speed\": 1.2,\n  \"output_format\": \"mp3\",\n  \"is_load_from_cache\": false\n}"
+				},
+				"description": "Synthesize Vietnamese text to MP3 audio.  Always regenerates (ignores cache)."
+			}
+		},
+		{
+			"name": "Synthesize (English)",
+			"request": {
+				"method": "POST",
+				"url": { "raw": "{{base_url}}/v1/tts/synthesize" },
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"Hello, this is a test of the English voice.\",\n  \"lang\": \"en\",\n  \"speed\": 1.0,\n  \"output_format\": \"wav\",\n  \"is_load_from_cache\": true\n}"
+				},
+				"description": "Synthesize English text to WAV audio."
+			}
+		},
+		{
+			"name": "Synthesize (with voice_id)",
+			"request": {
+				"method": "POST",
+				"url": { "raw": "{{base_url}}/v1/tts/synthesize" },
+				"header": [
+					{ "key": "Content-Type", "value": "application/json" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"Hôm nay trời đẹp quá.\",\n  \"lang\": \"vi\",\n  \"speed\": 0.8,\n  \"voice_id\": \"xuan_vinh\",\n  \"output_format\": \"wav\",\n  \"is_load_from_cache\": true\n}"
+				},
+				"description": "Synthesize with a specific voice ID."
+			}
+		},
+		{
+			"name": "List Voices",
+			"request": {
+				"method": "GET",
+				"url": { "raw": "{{base_url}}/v1/tts/voices" },
+				"description": "List all available preset voices."
+			}
+		}
+	]
+}

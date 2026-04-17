@@ -120,6 +120,7 @@ pythonpath = ["src"]
 [project.scripts]
 vieneu-web = "apps.gradio_main:main"
 vieneu-stream = "apps.web_stream:main"
+vieneu-api = "apps.api_service:main"
 
 [tool.setuptools]
 package-dir = {"" = "src", "apps" = "apps", "examples" = "examples"}

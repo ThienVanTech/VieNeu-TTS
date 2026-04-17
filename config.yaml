@@ -26,3 +26,17 @@ codec_configs:
     description: "Codec tối ưu cho Turbo v2 (ONNX)"
     use_preencoded: false
 
+# --- API Service settings (used by apps/api_service.py) ---
+api_service:
+  backbone_repo: "pnnbao-ump/VieNeu-TTS-v2-Turbo-GGUF"
+  device: "cpu"
+  languages:
+    vi:
+      default_voice_id: ""
+      default_speed: 1.0
+      output_format: "wav"
+    en:
+      default_voice_id: ""
+      default_speed: 1.0
+      output_format: "wav"
+
